@@ -63,6 +63,7 @@ _MODULES = [
     "aiter_swiglu_f16",
     "assumptions",
     "atomics",
+    "barrier_helpers",
     "boolean_storage",
     "borrowed_storage",
     "collective_scans",
@@ -397,6 +398,7 @@ loom_check_test(
     for name in [
         "assembly_lowering",
         "assembly_invalid",
+        "barrier_control_invalid",
         "dynamic_vector_slices",
         "integer_extrema",
         "matrix_fragments",

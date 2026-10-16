@@ -211,11 +211,11 @@ loom_cc_test(
 )
 
 loom_cc_library(
-    name = "kernel_async_legality",
-    srcs = ["kernel_async_legality.c"],
-    hdrs = ["kernel_async_legality.h"],
+    name = "kernel_synchronization_legality",
+    srcs = ["kernel_synchronization_legality.c"],
+    hdrs = ["kernel_synchronization_legality.h"],
     deps = [
-        "//loom/src/loom/analysis:kernel_async_legality",
+        "//loom/src/loom/analysis:kernel_synchronization_legality",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/pass:types",

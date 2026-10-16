@@ -8,7 +8,7 @@
 #define LOOM_ANALYSIS_PIPELINE_WORKERS_H_
 
 #include "loom/analysis/channel_completion.h"
-#include "loom/analysis/kernel_async_legality.h"
+#include "loom/analysis/kernel_synchronization_legality.h"
 #include "loom/analysis/pipeline_resources.h"
 #include "loom/util/cfg_graph.h"
 #include "loom/util/fact_cfg.h"
@@ -139,7 +139,7 @@ typedef struct loom_pipeline_worker_t {
   // Aggregate FIFO credit deltas, or the record-aware realization requirement.
   loom_channel_completion_t completion;
   // Borrowed asynchronous movement and its admitted group completion edges.
-  loom_kernel_async_legality_result_t asynchronous;
+  loom_kernel_synchronization_legality_result_t asynchronous;
   // Complete communication-only execution when no residual effects or control
   // require a processor. Physical owners consume this instead of walking IR.
   loom_pipeline_transport_t transport;

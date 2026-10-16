@@ -590,6 +590,7 @@ loom_test_module(
     )
     for source in [
         "assumptions",
+        "barrier_helpers",
         "borrowed_storage",
         "collective_scans",
         "constant_loops",

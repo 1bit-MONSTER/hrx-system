@@ -60,6 +60,46 @@ func.def @synchronize() {
 }
 
 // ====
+// Required-inline helpers may load immutable header values that control a
+// barrier. Import preserves the helper boundary; kernel legalization expands
+// it before proving convergence in the caller's fact scope.
+#include <loomcxx/kernel.h>
+LOOM_FORCE_INLINE bool header_enables_barrier(const unsigned* header) {
+  return header[0] != 0;
+}
+[[loom::kernel, loom::workgroup_size(64, 1, 1), loom::workgroup_count(1, 1, 1)]]
+void guarded_barrier(const unsigned* header) {
+  if (header_enables_barrier(header)) {
+    loom::kernel::workgroup::barrier();
+  }
+}
+// ----
+func.def public inline @header_enables_barrier(%header: buffer, %header_byte_offset: offset) -> (i1) {
+  %7 = index.cast %header_byte_offset : offset to i64
+  %9 = scalar.assume %7 [range(%7, 0, 9223372036854775807)] : i64
+  %10 = index.cast %9 : i64 to offset
+  %11 = buffer.view %header[%10] : buffer -> view<1xi32>
+  %12 = view.load %11[0] : view<1xi32> -> i32
+  %13 = scalar.constant 0 : i32
+  %14 = scalar.cmpi ne, %12, %13 : i32
+  func.return %14 : i1
+}
+
+kernel.def @guarded_barrier() {
+  %16 = index.constant 1 : index
+  %19 = index.constant 64 : index
+  kernel.launch.config workgroups(%16, %16, %16) workgroup_size(%19, %16, %16) : index
+} launch(%header: buffer) {
+  %header_byte_offset = index.constant 0 : offset
+  %23 = func.call readonly @header_enables_barrier(%header, %header_byte_offset) : (buffer, offset) -> (i1)
+  scf.if %23 {
+    kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  kernel.return
+}
+
+// ====
 // Required-inline helpers defer placement until their kernel use is expanded.
 #include <loomcxx/kernel.h>
 [[loom::force_inline]] static unsigned topology() {

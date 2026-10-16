@@ -21,7 +21,6 @@ loom_check_test_suite(
     "narrowing_facts.loom-test"
     "rotation_facts.loom-test"
     "temporal_facts.loom-test"
-    "temporal_verify.loom-test"
     "verify.loom-test"
 )
 

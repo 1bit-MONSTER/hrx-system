@@ -8,8 +8,8 @@
 
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/contract_vector.h"
-#include "loom/analysis/kernel_async_legality.h"
 #include "loom/analysis/kernel_barrier_lifetime.h"
+#include "loom/analysis/kernel_synchronization_legality.h"
 #include "loom/analysis/vector_memory_footprint.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/contract_query.h"
@@ -1274,20 +1274,20 @@ static iree_status_t loom_low_lower_function_plan_build(
     return iree_ok_status();
   }
 
-  loom_kernel_async_legality_result_t async_legality_result = {0};
+  loom_kernel_synchronization_legality_result_t synchronization_result = {0};
   if (iree_status_is_ok(status)) {
-    loom_kernel_async_legality_options_t async_legality_options = {
+    loom_kernel_synchronization_legality_options_t synchronization_options = {
         .fact_table = context->fact_table,
         .value_domain = &context->lowering->value_domain,
         .emitter = options->emitter,
         .phase_name = IREE_SV("source-low"),
     };
-    status = loom_kernel_async_legality_analyze_function(
-        module, source_function, &async_legality_options,
-        &context->analysis_arena, &async_legality_result);
+    status = loom_kernel_synchronization_legality_analyze_function(
+        module, source_function, &synchronization_options,
+        &context->analysis_arena, &synchronization_result);
   }
   if (iree_status_is_ok(status)) {
-    out_result->error_count += async_legality_result.error_count;
+    out_result->error_count += synchronization_result.error_count;
   }
   if (iree_status_is_ok(status) && out_result->error_count != 0) {
     return iree_ok_status();
