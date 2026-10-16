@@ -315,3 +315,177 @@ check.scenario @subgroup_extended_reduction_values {
   }
   check.return
 }
+
+// IEEE extrema propagate NaNs, unlike the number-preferring reductions above.
+kernel.def @subgroup_ieee_extrema() {
+  %unit = index.constant 1 : index
+  %items = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<64x4xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<64x2x4xf32>
+  %values = vector.load %source[%item, 0] : view<64x4xf32> -> vector<4xf32>
+  %minimum = kernel.subgroup.reduce<minimumf> %values {cluster_size = 32} : vector<4xf32>
+  %maximum = kernel.subgroup.reduce<maximumf> %values {cluster_size = 32} : vector<4xf32>
+  vector.store %minimum, %destination[%item, 0, 0] : vector<4xf32>, view<64x2x4xf32>
+  vector.store %maximum, %destination[%item, 1, 0] : vector<4xf32>, view<64x2x4xf32>
+  kernel.return
+}
+
+func.def @subgroup_ieee_extrema_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<64x4xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<64x2x4xf32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %width = index.constant 32 : index
+  %items = index.constant 64 : index
+  %components = index.constant 4 : index
+  %positive_infinity = scalar.constant inf : f64
+  %negative_infinity = scalar.constant -inf : f64
+  scf.for %cluster = [%begin to %items step %width] {
+    %end = index.add %cluster, %width : index
+    scf.for %component = [%begin to %components step %step] {
+      %minimum, %maximum = scf.for %item = [%cluster to %end step %step](%min_acc = %positive_infinity : f64, %max_acc = %negative_infinity : f64) -> (f64, f64) {
+        %raw = view.load %source[%item, %component] : view<64x4xf32> -> f32
+        %value = scalar.extf %raw : f32 to f64
+        %next_minimum = scalar.minimumf %min_acc, %value : f64
+        %next_maximum = scalar.maximumf %max_acc, %value : f64
+        scf.yield %next_minimum, %next_maximum : f64, f64
+      }
+      %minimum_f32 = scalar.fptrunc %minimum : f64 to f32
+      %maximum_f32 = scalar.fptrunc %maximum : f64 to f32
+      scf.for %item = [%cluster to %end step %step] {
+        view.store %minimum_f32, %destination[%item, 0, %component] : f32, view<64x2x4xf32>
+        view.store %maximum_f32, %destination[%item, 1, %component] : f32, view<64x2x4xf32>
+      }
+    }
+  }
+  func.return
+}
+
+check.scenario @subgroup_ieee_extrema_values {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-100.0 to 100.0) : tensor<64x4xf32>
+    %output = check.generate.fill value(123.0) : tensor<64x2x4xf32>
+    check.compare<@subgroup_ieee_extrema, @subgroup_ieee_extrema_oracle>(%input, %output) : (tensor<64x4xf32>, tensor<64x2x4xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<64x2x4xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // Every component sees infinity, NaN, and zero from distinct invocations.
+    %input = check.generate.iota offset(-8388608) step(4194304) period(3) : tensor<64x4xi32>
+    %output = check.generate.fill value(123.0) : tensor<64x2x4xf32>
+    check.compare<@subgroup_ieee_extrema, @subgroup_ieee_extrema_oracle>(%input, %output) : (tensor<64x4xi32>, tensor<64x2x4xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<64x2x4xf32>
+    }
+  }
+  check.return
+}
+
+// Uniform runtime inputs isolate F16 key encoding and decoding from subgroup
+// packing. Arithmetic quiets NaNs; a singleton subgroup may forward its input.
+func.def inline @half_collective_bits(%value: f16, %combined: i1) -> (i16) {
+  %bits = scalar.bitcast %value : f16 to i16
+  %mask = scalar.constant 32767 : i16
+  %infinity = scalar.constant 31744 : i16
+  %quiet_mask = scalar.constant 512 : i16
+  %magnitude = scalar.andi %bits, %mask : i16
+  %nan = scalar.cmpi ugt, %magnitude, %infinity : i16
+  %quiet_bits = scalar.andi %bits, %quiet_mask : i16
+  %quiet = scf.select %combined, %quiet_bits, %quiet_mask : i16
+  %nan_tag = scalar.ori %infinity, %quiet : i16
+  %result = scf.select %nan, %nan_tag, %bits : i16
+  func.return %result : i16
+}
+
+kernel.def @subgroup_half_extrema() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 16 : index
+  %items = index.constant 67 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %group = kernel.workgroup.id<x> : index
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<16xf16>
+  %destination = buffer.view %output[%base] : buffer -> view<16x67x4xi16>
+  %value = view.load %source[%group] : view<16xf16> -> f16
+  %present = scalar.constant 1 : i32
+  %participants = kernel.subgroup.reduce<addi> %present : i32
+  %combined = scalar.cmpi ugt, %participants, %present : i32
+  %minimum = kernel.subgroup.reduce<minnumf> %value : f16
+  %maximum = kernel.subgroup.reduce<maxnumf> %value : f16
+  %nan_minimum = kernel.subgroup.reduce<minimumf> %value : f16
+  %nan_maximum = kernel.subgroup.reduce<maximumf> %value : f16
+  %minimum_bits = func.call @half_collective_bits(%minimum, %combined) : (f16, i1) -> (i16)
+  %maximum_bits = func.call @half_collective_bits(%maximum, %combined) : (f16, i1) -> (i16)
+  %nan_minimum_bits = func.call @half_collective_bits(%nan_minimum, %combined) : (f16, i1) -> (i16)
+  %nan_maximum_bits = func.call @half_collective_bits(%nan_maximum, %combined) : (f16, i1) -> (i16)
+  view.store %minimum_bits, %destination[%group, %item, 0] : i16, view<16x67x4xi16>
+  view.store %maximum_bits, %destination[%group, %item, 1] : i16, view<16x67x4xi16>
+  view.store %nan_minimum_bits, %destination[%group, %item, 2] : i16, view<16x67x4xi16>
+  view.store %nan_maximum_bits, %destination[%group, %item, 3] : i16, view<16x67x4xi16>
+  kernel.return
+}
+
+func.def @subgroup_half_extrema_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<16xi16>
+  %destination = buffer.view %output[%base] : buffer -> view<16x67x4xi16>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %groups = index.constant 16 : index
+  %items = index.constant 67 : index
+  %mask = scalar.constant 32767 : i16
+  %infinity = scalar.constant 31744 : i16
+  %quiet_nan = scalar.constant 32256 : i16
+  scf.for %group = [%begin to %groups step %step] {
+    %bits = view.load %source[%group] : view<16xi16> -> i16
+    %magnitude = scalar.andi %bits, %mask : i16
+    %nan = scalar.cmpi ugt, %magnitude, %infinity : i16
+    %expected = scf.select %nan, %quiet_nan, %bits : i16
+    %results = vector.splat %expected : vector<4xi16>
+    scf.for %item = [%begin to %items step %step] {
+      vector.store %results, %destination[%group, %item, 0] : vector<4xi16>, view<16x67x4xi16>
+    }
+  }
+  func.return
+}
+
+check.scenario @subgroup_half_extrema_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // Signed zero and the smallest subnormal magnitudes, as raw input bits.
+    %input = check.generate.iota offset(-32768) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(123) : tensor<16x67x4xi16>
+    check.compare<@subgroup_half_extrema, @subgroup_half_extrema_oracle>(%input, %output) : (tensor<16xi16>, tensor<16x67x4xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16x67x4xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(123) : tensor<16x67x4xi16>
+    check.compare<@subgroup_half_extrema, @subgroup_half_extrema_oracle>(%input, %output) : (tensor<16xi16>, tensor<16x67x4xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16x67x4xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // Infinity and signaling NaNs must not be confused with numeric extrema.
+    %input = check.generate.iota offset(31744) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(123) : tensor<16x67x4xi16>
+    check.compare<@subgroup_half_extrema, @subgroup_half_extrema_oracle>(%input, %output) : (tensor<16xi16>, tensor<16x67x4xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16x67x4xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1024) step(64) : tensor<16xi16>
+    %output = check.generate.fill value(123) : tensor<16x67x4xi16>
+    check.compare<@subgroup_half_extrema, @subgroup_half_extrema_oracle>(%input, %output) : (tensor<16xi16>, tensor<16x67x4xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16x67x4xi16>
+    }
+  }
+  check.return
+}

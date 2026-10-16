@@ -10,17 +10,33 @@
 iree_add_all_subdirs()
 
 if(LOOM_TARGET_ARCH_SPIRV)
+loom_generated_file(
+  NAME
+    collective_rows_gen
+  GENERATOR
+    loom::py::loom::gen::target::arch::spirv::collective_rows
+  OUTPUT
+    "collective_rows.inl"
+  OUTPUT_FLAG
+    "--tables"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
 loom_cc_library(
   NAME
     lower
   HDRS
+    "collective_arithmetic.h"
     "lower.h"
     "matrix.h"
     "workgroup.h"
     "workgroup_layout.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/spirv/contracts/tables.inl"
+    "collective_rows.inl"
   SRCS
+    "collective_arithmetic.c"
     "matrix.c"
     "registry.c"
     "workgroup.c"
@@ -40,6 +56,7 @@ loom_cc_library(
     loom::ir::facts
     loom::ops::atomic
     loom::ops::buffer
+    loom::ops::combining
     loom::ops::func
     loom::ops::kernel
     loom::ops::low
@@ -79,6 +96,17 @@ loom_cc_library(
     loom::ops::vector
     loom::util::fact_table
   PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV)
+loom_check_test_suite(
+  NAME
+    collective_arithmetic_tests
+  SRCS
+    "collective_arithmetic_test.loom-test"
+  LABELS
+    "hostonly"
 )
 endif()
 

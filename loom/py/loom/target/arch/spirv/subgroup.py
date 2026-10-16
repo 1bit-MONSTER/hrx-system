@@ -309,6 +309,58 @@ def _arithmetic_rows() -> tuple[SpirvSubgroupArithmetic, ...]:
 
 SPIRV_SUBGROUP_ARITHMETIC = _arithmetic_rows()
 
+
+@dataclass(frozen=True, slots=True)
+class SpirvCollectiveExtremaType:
+    """Native carriers and instructions for signed-key floating extrema."""
+
+    # IEEE floating-point component width.
+    bit_count: int
+    # Independent vector components; one denotes the scalar carrier.
+    lane_count: int
+
+    @property
+    def integer_suffix(self) -> str:
+        prefix = f"v{self.lane_count}" if self.lane_count != 1 else ""
+        return f"{prefix}i{self.bit_count}"
+
+    @property
+    def float_suffix(self) -> str:
+        prefix = f"v{self.lane_count}" if self.lane_count != 1 else ""
+        return f"{prefix}f{self.bit_count}"
+
+    @property
+    def descriptors(self) -> dict[str, str]:
+        integer = self.integer_suffix
+        floating = self.float_suffix
+        return {
+            "constant": f"spirv.op_constant.i{self.bit_count}",
+            **(
+                {"construct": f"spirv.op_composite_construct.{integer}"}
+                if self.lane_count != 1
+                else {}
+            ),
+            "to_bits": f"spirv.op_bitcast.{floating}.{integer}",
+            "from_bits": f"spirv.op_bitcast.{integer}.{floating}",
+            "bitwise_and": f"spirv.op_bitwise_and.{integer}",
+            "bitwise_xor": f"spirv.op_bitwise_xor.{integer}",
+            "shift_right": f"spirv.op_shift_right_arithmetic.{integer}",
+            "greater_than": f"spirv.op_s_greater_than.{integer}",
+            "equal": f"spirv.op_i_equal.{integer}",
+            "select": f"spirv.op_select.{integer}",
+        }
+
+    def subgroup_key(self, mode: str, *, minimum: bool) -> str:
+        operation = "smin" if minimum else "smax"
+        return f"spirv.op_group_non_uniform_{operation}.{mode}.{self.integer_suffix}"
+
+
+SPIRV_COLLECTIVE_EXTREMA_TYPES = tuple(
+    SpirvCollectiveExtremaType(bit_count, lane_count)
+    for bit_count in (16, 32, 64)
+    for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS)
+)
+
 SPIRV_SUBGROUP_INSTRUCTIONS = (
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION,

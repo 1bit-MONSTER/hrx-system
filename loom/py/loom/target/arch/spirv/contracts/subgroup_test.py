@@ -4,10 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-import math
-import operator
-import struct
-
 from loom.dialect.kernel import defs as kernel
 from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
@@ -15,8 +11,8 @@ from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.contracts import (
     DescriptorResultType,
     GuardKind,
+    RecipeRule,
     SourceValueKind,
-    ValueRef,
 )
 
 
@@ -279,10 +275,12 @@ def test_reduction_family_covers_native_types_shapes_and_modes() -> None:
             actual.add(cell)
         group_emits = [
             emit
-            for emit in rule.emit
+            for emit in (() if isinstance(rule, RecipeRule) else rule.emit)
             if emit.descriptor.key.startswith("spirv.op_group_non_uniform_")
         ]
-        assert len(group_emits) == 1
+        assert len(group_emits) == (0 if isinstance(rule, RecipeRule) else 1)
+        if isinstance(rule, RecipeRule):
+            continue
         clustered = mode is GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER
         assert bool(group_emits[0].immediates) == clustered
         if clustered:
@@ -306,7 +304,10 @@ def test_reduction_family_covers_native_types_shapes_and_modes() -> None:
                     "xori",
                 ),
             ),
-            (("f16", "f32", "f64"), ("addf", "mulf", "minnumf", "maxnumf")),
+            (
+                ("f16", "f32", "f64"),
+                ("addf", "mulf", "minnumf", "maxnumf", "minimumf", "maximumf"),
+            ),
         )
         for element in elements
         for lanes in (None, 1, 2, 3, 4)
@@ -349,18 +350,20 @@ def test_scan_family_covers_native_types_shapes_and_modes() -> None:
         assert any(
             guard.kind is GuardKind.TARGET_WHOLE_SUBGROUP for guard in rule.guards
         )
-        group_emits = [
-            emit
-            for emit in rule.emit
-            if emit.descriptor.key.startswith("spirv.op_group_non_uniform_")
-        ]
-        assert len(group_emits) == 1
-        assert not group_emits[0].immediates
-        assert f".{mode}_scan." in group_emits[0].descriptor.key
         for kind in kinds:
             cell = (pattern.elements[0], pattern.lanes, kind, mode)
             assert cell not in actual, cell
             actual.add(cell)
+        group_emits = [
+            emit
+            for emit in (() if isinstance(rule, RecipeRule) else rule.emit)
+            if emit.descriptor.key.startswith("spirv.op_group_non_uniform_")
+        ]
+        assert len(group_emits) == (0 if isinstance(rule, RecipeRule) else 1)
+        if isinstance(rule, RecipeRule):
+            continue
+        assert not group_emits[0].immediates
+        assert f".{mode}_scan." in group_emits[0].descriptor.key
     expected = {
         (element, lanes, kind, mode)
         for elements, kinds in (
@@ -378,7 +381,10 @@ def test_scan_family_covers_native_types_shapes_and_modes() -> None:
                     "xori",
                 ),
             ),
-            (("f16", "f32", "f64"), ("addf", "mulf", "minnumf", "maxnumf")),
+            (
+                ("f16", "f32", "f64"),
+                ("addf", "mulf", "minnumf", "maxnumf", "minimumf", "maximumf"),
+            ),
         )
         for element in elements
         for lanes in (None, 1, 2, 3, 4)
@@ -430,144 +436,12 @@ def test_arithmetic_types_require_logical_device_admission() -> None:
         )
         assert requires_extended == (
             pattern.elements[0] in ("i8", "i16", "i64", "f16")
-            or (pattern.elements[0] == "f64" and bool(rule.report_key))
+            or (pattern.elements[0] == "f64" and isinstance(rule, RecipeRule))
         )
-        if rule.report_key:
-            assert rule.report_key == "integer_float_extrema"
-            assert len(rule.emit) <= 26
+        if isinstance(rule, RecipeRule):
+            assert pattern.elements[0] in ("f16", "f32", "f64")
             assert all(
-                not emit.descriptor.key.startswith("spirv.op_f") for emit in rule.emit
+                not guard.descriptor.key.startswith("spirv.op_f")
+                for guard in rule.guards
+                if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE
             )
-
-
-def _evaluate_extremum_scan(rule, inputs: list[int], width: int) -> list[int]:
-    """Interprets one packet component over the ordered active invocations."""
-    sign = 1 << (width - 1)
-    mask = (1 << width) - 1
-
-    def signed(value):
-        return ((value + sign) & mask) - sign
-
-    values = {ValueRef.operand("value"): [signed(value) for value in inputs]}
-    binary = {
-        "bitwise_and": operator.and_,
-        "bitwise_xor": operator.xor,
-        "shift_right_arithmetic": operator.rshift,
-        "s_greater_than": operator.gt,
-        "i_equal": operator.eq,
-    }
-    for emit in rule.emit:
-        key = emit.descriptor.key.removeprefix("spirv.op_")
-        operation = key.split(".")[0]
-        operands = {name: values[ref] for name, ref in emit.operands.items()}
-        if operation == "constant":
-            result = [next(iter(emit.immediates.values()))] * len(inputs)
-        elif operation == "bitcast":
-            result = operands["input"]
-        elif operation == "composite_construct":
-            # Packet constants repeat one scalar across all components.
-            result = operands["component0"]
-            assert all(value == result for value in operands.values())
-        elif operation in ("group_non_uniform_smin", "group_non_uniform_smax"):
-            minimum = operation == "group_non_uniform_smin"
-            combine = min if minimum else max
-            identity = sign - 1 if minimum else -sign
-            inclusive = ".inclusive_scan." in key
-            result = [
-                combine(operands["value"][: position + inclusive], default=identity)
-                for position in range(len(inputs))
-            ]
-        elif operation == "select":
-            result = [
-                true_value if condition else false_value
-                for condition, true_value, false_value in zip(
-                    operands["condition"],
-                    operands["true_value"],
-                    operands["false_value"],
-                    strict=True,
-                )
-            ]
-        else:
-            assert operation in binary, key
-            result = [
-                binary[operation](lhs, rhs)
-                for lhs, rhs in zip(operands["lhs"], operands["rhs"], strict=True)
-            ]
-        values[emit.results["dst"]] = [signed(value) for value in result]
-    return [value & mask for value in values[ValueRef.result("result")]]
-
-
-def test_float_scan_packets_distinguish_empty_nan_and_numeric_prefixes() -> None:
-    covered = set()
-    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
-        if rule.source_op is not kernel.kernel_subgroup_scan or not rule.report_key:
-            continue
-        pattern = next(
-            guard.type_pattern
-            for guard in rule.guards
-            if guard.kind is GuardKind.VALUE_TYPE
-        )
-        width = int(pattern.elements[0][1:])
-        mode = next(
-            guard.enum_keyword
-            for guard in rule.guards
-            if guard.kind is GuardKind.ENUM_ATTR_EQUALS and guard.field == "mode"
-        )
-        kind = next(
-            guard.enum_keywords[0]
-            for guard in rule.guards
-            if guard.kind is GuardKind.ENUM_ATTR_IN
-        )
-        minimum = kind == "minnumf"
-        covered.add((width, pattern.lanes, kind, mode))
-        sign = 1 << (width - 1)
-        infinity = {16: 0x7C00, 32: 0x7F800000, 64: 0x7FF0000000000000}[width]
-        nan = infinity + (1 << {16: 9, 32: 22, 64: 51}[width])
-
-        def decode(bits, width=width):
-            return struct.unpack(
-                {16: "<e", 32: "<f", 64: "<d"}[width],
-                bits.to_bytes(width // 8, "little"),
-            )[0]
-
-        cases = (
-            [nan] * 4,
-            [sign | nan] * 4,
-            [infinity + 1, nan, sign | nan, infinity],
-            [nan, 0, sign, infinity, sign | infinity],
-            [nan, sign, 0, sign | infinity, infinity],
-            [1, sign | 1, infinity - 1, sign | (infinity - 1)],
-        )
-        for inputs in cases:
-            actual = _evaluate_extremum_scan(rule, inputs, width)
-            for position, bits in enumerate(actual):
-                prefix = inputs[: position + (mode == "inclusive")]
-                numeric = [
-                    decode(value) for value in prefix if not math.isnan(decode(value))
-                ]
-                if not prefix:
-                    expected = math.inf if minimum else -math.inf
-                elif not numeric:
-                    assert math.isnan(decode(bits)), (covered, inputs, position)
-                    continue
-                else:
-                    # Signed zero is the secondary numeric ordering key.
-                    expected = (min if minimum else max)(
-                        numeric, key=lambda value: (value, math.copysign(1.0, value))
-                    )
-                assert decode(bits) == expected, (
-                    width,
-                    pattern.lanes,
-                    kind,
-                    mode,
-                    inputs,
-                    position,
-                )
-                assert math.copysign(1.0, decode(bits)) == math.copysign(1.0, expected)
-    assert covered == {
-        (width, lanes, kind, mode)
-        for width in (16, 32, 64)
-        for lanes in (None, 1, 2, 3, 4)
-        for kind in ("minnumf", "maxnumf")
-        for mode in ("inclusive", "exclusive")
-    }
