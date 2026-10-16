@@ -69,7 +69,7 @@ _V16I1 = Vector("i1", lanes=16)
 _V32I1 = Vector("i1", lanes=32)
 _PAYLOAD_VECTOR_TYPES = Vector(
     (*AVX2_PAYLOAD_ELEMENT_NAMES, "i1"),
-    minimum_lanes=2,
+    minimum_lanes=1,
     maximum_lanes=32,
 )
 _PAYLOAD_ELEMENT_NAMES_BY_BIT_WIDTH = {

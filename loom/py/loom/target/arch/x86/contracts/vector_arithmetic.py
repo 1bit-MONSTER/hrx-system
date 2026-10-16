@@ -23,8 +23,10 @@ from loom.target.arch.x86.contracts.rule_builders import (
 from loom.target.arch.x86.contracts.rule_builders import (
     value_type_guards as _typed_guards,
 )
+from loom.target.arch.x86.contracts.rule_builders import vector_carriers
 from loom.target.arch.x86.vector_families import (
     AVX2_BITWISE_FAMILIES,
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_FLOAT_BINARY_FAMILIES,
     AVX2_FLOAT_FMA_MNEMONICS,
     AVX2_FLOAT_VECTOR_BIT_WIDTHS,
@@ -58,7 +60,6 @@ from loom.target.contracts import (
 )
 from loom.target.contracts.templates import (
     DirectDescriptorCase,
-    binary_descriptor_rules,
     ternary_descriptor_rules,
 )
 
@@ -109,33 +110,49 @@ def direct_vector_family_rules(
     float_families: tuple[VectorBinaryFamily, ...],
     priority: int = 0,
 ) -> tuple[DescriptorRule, ...]:
-    cases = tuple(
-        DirectDescriptorCase(
-            _INTEGER_SOURCE_OPS[family.source_operation],
-            descriptor_lookup(
-                f"{descriptor_key_prefix}.{family.mnemonic}."
-                f"{_REGISTER_SUFFIXES[vector_bit_width]}"
-            ),
-            _full_vector_type(family.element, vector_bit_width),
-            priority=priority,
-        )
-        for family in integer_families
-        for vector_bit_width in vector_bit_widths
-    ) + tuple(
-        DirectDescriptorCase(
-            _FLOAT_SOURCE_OPS[family.source_operation],
-            descriptor_lookup(
-                f"{descriptor_key_prefix}.{family.mnemonic}."
-                f"{_REGISTER_SUFFIXES[vector_bit_width]}"
-            ),
-            _full_vector_type(family.element, vector_bit_width),
-            priority=priority,
-        )
-        for family in float_families
-        for vector_bit_width in vector_bit_widths
-        if vector_bit_width >= family.element.bit_width
-    )
-    return binary_descriptor_rules(cases, form=DescriptorEmitForm.OP)
+    rules: list[DescriptorRule] = []
+    for source_ops, families in (
+        (_INTEGER_SOURCE_OPS, integer_families),
+        (_FLOAT_SOURCE_OPS, float_families),
+    ):
+        for family in families:
+            for carrier in vector_carriers(family.element, vector_bit_widths):
+                descriptor = descriptor_lookup(
+                    f"{descriptor_key_prefix}.{family.mnemonic}."
+                    f"{carrier.descriptor_suffix}"
+                )
+                rules.append(
+                    DescriptorRule(
+                        source_op=source_ops[family.source_operation],
+                        descriptor=descriptor,
+                        guards=(
+                            *_typed_guards(
+                                ("lhs", "rhs", "result"), carrier.value_type
+                            ),
+                            Guard.low_value_register_class(
+                                "lhs", carrier.register_class
+                            ),
+                            Guard.low_value_register_class(
+                                "rhs", carrier.register_class
+                            ),
+                            Guard.low_value_register_class(
+                                "result", carrier.register_class
+                            ),
+                        ),
+                        emit=(
+                            _op_emit(
+                                descriptor=descriptor,
+                                operands={
+                                    "lhs": ValueRef.operand("lhs"),
+                                    "rhs": ValueRef.operand("rhs"),
+                                },
+                                results={"dst": ValueRef.result("result")},
+                            ),
+                        ),
+                        priority=priority,
+                    )
+                )
+    return tuple(rules)
 
 
 def _bitwise_vector_family_rules(
@@ -338,7 +355,7 @@ def avx2_vector_arithmetic_rules(
         *direct_vector_family_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
-            vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
+            vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
             integer_families=AVX2_INTEGER_BINARY_FAMILIES,
             float_families=(),
         ),

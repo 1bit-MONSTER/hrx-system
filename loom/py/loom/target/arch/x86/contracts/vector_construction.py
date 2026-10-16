@@ -29,6 +29,7 @@ from loom.target.arch.x86.contracts.rule_builders import (
 from loom.target.arch.x86.contracts.rule_builders import (
     full_vector_type as _full_vector_type,
 )
+from loom.target.arch.x86.contracts.rule_builders import vector_carriers
 from loom.target.arch.x86.vector_families import (
     AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_VECTOR_BIT_WIDTHS,
@@ -185,54 +186,60 @@ def _uniform_vector_constant_rules(
     for element in integer_elements:
         lane_type = _full_vector_type(element, 128)
         rules.extend(
-            integer_vector_constant_rule(
-                _full_vector_type(element, vector_bit_width),
-                lane_type,
-                element.bit_width,
-                descriptor_lookup(
-                    "x86.scalar.movimm.gpr64"
-                    if element.bit_width == 64
-                    else "x86.scalar.movimm.gpr32"
-                ),
-                _integer_lane_move_descriptor(
+            (
+                integer_vector_constant_rule(
+                    carrier.value_type,
+                    lane_type,
                     element.bit_width,
-                    broadcast_source,
-                    descriptor_lookup,
-                ),
-                descriptor_lookup(
-                    f"{descriptor_key_prefix}."
-                    f"{_INTEGER_BROADCAST_MNEMONICS[element.bit_width]}."
-                    f"{_REGISTER_SUFFIXES[vector_bit_width]}"
-                ),
-                priority=priority,
+                    descriptor_lookup(
+                        "x86.scalar.movimm.gpr64"
+                        if element.bit_width == 64
+                        else "x86.scalar.movimm.gpr32"
+                    ),
+                    _integer_lane_move_descriptor(
+                        element.bit_width,
+                        broadcast_source,
+                        descriptor_lookup,
+                    ),
+                    descriptor_lookup(
+                        f"{descriptor_key_prefix}."
+                        f"{_INTEGER_BROADCAST_MNEMONICS[element.bit_width]}."
+                        f"{carrier.descriptor_suffix}"
+                    ),
+                    priority=priority,
+                    result_register_class=carrier.register_class,
+                )
             )
-            for vector_bit_width in vector_bit_widths
+            for carrier in vector_carriers(element, vector_bit_widths)
         )
     for element in floating_elements:
         lane_type = _full_vector_type(element, 128)
         rules.extend(
-            floating_vector_constant_bits_rule(
-                _full_vector_type(element, vector_bit_width),
-                lane_type,
-                element.name,
-                descriptor_lookup(
-                    "x86.scalar.movimm.gpr64"
-                    if element.bit_width == 64
-                    else "x86.scalar.movimm.gpr32"
-                ),
-                _integer_lane_move_descriptor(
-                    element.bit_width,
-                    broadcast_source,
-                    descriptor_lookup,
-                ),
-                descriptor_lookup(
-                    f"{descriptor_key_prefix}."
-                    f"{_INTEGER_BROADCAST_MNEMONICS[element.bit_width]}."
-                    f"{_REGISTER_SUFFIXES[vector_bit_width]}"
-                ),
-                priority=priority,
+            (
+                floating_vector_constant_bits_rule(
+                    carrier.value_type,
+                    lane_type,
+                    element.name,
+                    descriptor_lookup(
+                        "x86.scalar.movimm.gpr64"
+                        if element.bit_width == 64
+                        else "x86.scalar.movimm.gpr32"
+                    ),
+                    _integer_lane_move_descriptor(
+                        element.bit_width,
+                        broadcast_source,
+                        descriptor_lookup,
+                    ),
+                    descriptor_lookup(
+                        f"{descriptor_key_prefix}."
+                        f"{_INTEGER_BROADCAST_MNEMONICS[element.bit_width]}."
+                        f"{carrier.descriptor_suffix}"
+                    ),
+                    priority=priority,
+                    result_register_class=carrier.register_class,
+                )
             )
-            for vector_bit_width in vector_bit_widths
+            for carrier in vector_carriers(element, vector_bit_widths)
         )
     return tuple(rules)
 
@@ -250,14 +257,11 @@ def _vector_splat_rules(
     for element in (*INTEGER_ELEMENTS, *STORAGE_ELEMENTS):
         scalar_type = Scalar(element.name)
         lane_type = _full_vector_type(element, 128)
-        for vector_bit_width in integer_vector_bit_widths:
-            if vector_bit_width < element.bit_width:
-                continue
-            result_type = _full_vector_type(element, vector_bit_width)
-            rules.append(
+        rules.extend(
+            (
                 integer_vector_splat_rule(
                     scalar_type,
-                    result_type,
+                    carrier.value_type,
                     _integer_lane_move_descriptor(
                         element.bit_width,
                         broadcast_source,
@@ -266,27 +270,31 @@ def _vector_splat_rules(
                     descriptor_lookup(
                         f"{descriptor_key_prefix}."
                         f"{_INTEGER_BROADCAST_MNEMONICS[element.bit_width]}."
-                        f"{_REGISTER_SUFFIXES[vector_bit_width]}"
+                        f"{carrier.descriptor_suffix}"
                     ),
                     broadcast_operand="value",
                     lane_type=lane_type,
                     priority=priority,
+                    result_register_class=carrier.register_class,
                 )
             )
+            for carrier in vector_carriers(element, integer_vector_bit_widths)
+        )
     for element, mnemonic in (
         (FLOAT_ELEMENTS[0], "vbroadcastss"),
         (FLOAT_ELEMENTS[1], "vbroadcastsd"),
     ):
         rules.extend(
-            _splat_rule(
-                Scalar(element.name),
-                _full_vector_type(element, vector_bit_width),
-                f"{descriptor_key_prefix}.{mnemonic}."
-                f"{_REGISTER_SUFFIXES[vector_bit_width]}",
-                descriptor_lookup,
+            (
+                _splat_rule(
+                    Scalar(element.name),
+                    carrier.value_type,
+                    f"{descriptor_key_prefix}.{mnemonic}.{carrier.descriptor_suffix}",
+                    descriptor_lookup,
+                    result_register_class=carrier.register_class,
+                )
             )
-            for vector_bit_width in float_vector_bit_widths
-            if vector_bit_width >= element.bit_width
+            for carrier in vector_carriers(element, float_vector_bit_widths)
         )
     return tuple(rules)
 
@@ -401,6 +409,7 @@ def _splat_rule(
     descriptor_lookup: _DescriptorLookup,
     *,
     priority: int = 0,
+    result_register_class: str | None = None,
 ) -> DescriptorRule:
     descriptor = descriptor_lookup(descriptor_key)
     return DescriptorRule(
@@ -409,6 +418,11 @@ def _splat_rule(
         guards=(
             Guard.value_type("scalar", scalar_type),
             Guard.value_type("result", result_type),
+            *(
+                (Guard.low_value_register_class("result", result_register_class),)
+                if result_register_class is not None
+                else ()
+            ),
         ),
         emit=(
             _op_emit(
@@ -1239,16 +1253,8 @@ def avx2_vector_construction_rules(
         *_uniform_vector_constant_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
-            vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
+            vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
             broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
-        ),
-        *_uniform_vector_constant_rules(
-            descriptor_lookup,
-            descriptor_key_prefix="x86.avx2",
-            vector_bit_widths=(64,),
-            broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
-            integer_elements=(),
-            floating_elements=FLOAT_ELEMENTS,
         ),
         *_vector_splat_rules(
             descriptor_lookup,

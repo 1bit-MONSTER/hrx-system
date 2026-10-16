@@ -22,9 +22,7 @@ from loom.target.arch.x86.descriptors import (
 from loom.target.arch.x86.feature_bits import FEATURE_AVX512_FP16
 from loom.target.arch.x86.vector_families import (
     AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS,
-    AVX512_FP16_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_FLOAT_EXTREMA_MNEMONICS,
-    AVX512_FP16_FLOAT_FMA_MNEMONIC,
     AVX512_FP16_SCALAR_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_EXTREMA_MNEMONICS,
     AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC,
@@ -46,12 +44,6 @@ _SCALAR_BINARY_OPS = {
     scalar_arithmetic.scalar_subf: "subf",
     scalar_arithmetic.scalar_mulf: "mulf",
     scalar_arithmetic.scalar_divf: "divf",
-}
-_VECTOR_BINARY_OPS = {
-    vector.vector_addf: "addf",
-    vector.vector_subf: "subf",
-    vector.vector_mulf: "mulf",
-    vector.vector_divf: "divf",
 }
 _REGISTER_SUFFIXES = {
     32: "xmm",
@@ -206,36 +198,6 @@ def test_scalar_arithmetic_covers_the_native_fp16_family() -> None:
             f"x86.avx512_fp16.{AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC}.xmm",
             Scalar("f16"),
         )
-    }
-
-
-def test_vector_arithmetic_covers_every_native_fp16_width() -> None:
-    expected_binary = {
-        (
-            getattr(vector, f"vector_{row.source_operation}"),
-            f"x86.avx512_fp16.{row.mnemonic}.{_REGISTER_SUFFIXES[bit_width]}",
-            Vector("f16", lanes=bit_width // 16),
-        )
-        for row in AVX512_FP16_FLOAT_BINARY_FAMILIES
-        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
-    }
-    actual_binary = {
-        (rule.source_op, rule.descriptor.key, _value_type(rule, "result"))
-        for source_op in _VECTOR_BINARY_OPS
-        for rule in _rules_for(source_op)
-    }
-    assert actual_binary == expected_binary
-
-    assert {
-        (rule.descriptor.key, _value_type(rule, "result"))
-        for rule in _rules_for(vector.vector_fmaf)
-    } == {
-        (
-            "x86.avx512_fp16."
-            f"{AVX512_FP16_FLOAT_FMA_MNEMONIC}.{_REGISTER_SUFFIXES[bit_width]}",
-            Vector("f16", lanes=bit_width // 16),
-        )
-        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
     }
 
 

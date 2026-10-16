@@ -148,29 +148,31 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
 
 // ====
 
-// The function ABI carries a 64-bit vector in the low half of an XMM
-// register. Scalar fallback extracts, computes, and reconstructs that logical
-// payload without making its two inactive physical lanes observable.
+// The function ABI carries a 64-bit vector in the low half of an XMM register.
+// Packed operations may update its inactive physical lanes because only the
+// two logical lanes are observable.
 x86.target<avx2> @target
 
-func.def target(@target) @subnative_integer_multiply(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>) {
-  %result = vector.muli %lhs, %rhs : vector<2xi32>
+func.def target(@target) @subnative_integer_arithmetic(%condition: i1, %lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>) {
+  %product = vector.muli %lhs, %rhs : vector<2xi32>
+  %bias = vector.constant 8388608 : vector<2xi32>
+  %adjusted = vector.subi %product, %bias : vector<2xi32>
+  %result = scf.select %condition, %adjusted, %product : vector<2xi32>
   func.return %result : vector<2xi32>
 }
 
 // ----
-low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>) -> (vector<2xi32>)}) @subnative_integer_multiply(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
-  %16 = vpextrd.xmm %lhs, 0
-  %17 = vpextrd.xmm %rhs, 0
-  %18 = copy %16 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %19 = imul.gpr32 %18, %17
-  %20 = vpextrd.xmm %lhs, 1
-  %21 = vpextrd.xmm %rhs, 1
-  %22 = copy %20 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %23 = imul.gpr32 %22, %21
-  %24 = vmovd.xmm.gpr32 %19
-  %25 = avx2.vpbroadcastd.xmm %24
-  %result = vpinsrd.xmm %25, %23, 1
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (i1, vector<2xi32>, vector<2xi32>) -> (vector<2xi32>)}) @subnative_integer_arithmetic(%condition: reg<x86.gpr32>, %lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %product = vpmulld.xmm %lhs, %rhs
+  %13 = mov.imm32 8388608
+  %14 = vmovd.xmm.gpr32 %13
+  %bias = avx2.vpbroadcastd.xmm %14
+  %adjusted = vpsubd.xmm %product, %bias
+  %17 = mov.imm32 0
+  %18 = sub.gpr32 %17, %condition
+  %19 = vmovd.xmm.gpr32 %18
+  %20 = avx2.vpbroadcastd.xmm %19
+  %result = vpblendvb.xmm %product, %adjusted, %20
   return %result
 }
 
