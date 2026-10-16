@@ -1413,6 +1413,12 @@ def steps_from_args(args: argparse.Namespace) -> list[CiStep]:
                 steps[index] = replace(
                     step, argv=step.argv[:4] + ("--keep_going",) + step.argv[4:]
                 )
+            elif step.argv[1:3] == ("dev.py", "--cmake-build-dir") and step.argv[
+                4:6
+            ] == ("cmake", "build"):
+                # CI CMake configurations use Ninja. Pass native build options
+                # after CMake's argument separator.
+                steps[index] = replace(step, argv=step.argv + ("--", "-k", "0"))
     if profile_dir is not None:
         steps = add_bazel_profiles(steps, profile_dir)
     if test_results_dir is not None:
@@ -1577,7 +1583,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         "--keep-going",
         action="store_true",
         help=(
-            "Run every phase, let Bazel finish independent actions after failures, "
+            "Run every phase, let build tools finish independent actions after failures, "
             "and report failures at the end."
         ),
     )
