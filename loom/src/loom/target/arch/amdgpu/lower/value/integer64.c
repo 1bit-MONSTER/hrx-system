@@ -515,19 +515,6 @@ static iree_status_t loom_amdgpu_mapped_address_value_is_wide(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_mapped_address_compare_needs_64bit(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    bool* out_needs_64bit) {
-  bool lhs_is_wide = false;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_mapped_address_value_is_wide(
-      context, source_op, loom_index_cmp_lhs(source_op), &lhs_is_wide));
-  bool rhs_is_wide = false;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_mapped_address_value_is_wide(
-      context, source_op, loom_index_cmp_rhs(source_op), &rhs_is_wide));
-  *out_needs_64bit = lhs_is_wide || rhs_is_wide;
-  return iree_ok_status();
-}
-
 static bool loom_amdgpu_scalar_cmpi_has_i64_operands(
     const loom_module_t* module, const loom_op_t* source_op) {
   if (!loom_scalar_cmpi_isa(source_op)) {
@@ -1217,10 +1204,9 @@ iree_status_t loom_amdgpu_select_index_cmp_i64_plan(
     loom_amdgpu_i64_compare_plan_t* out_plan, bool* out_selected) {
   *out_plan = (loom_amdgpu_i64_compare_plan_t){0};
   *out_selected = false;
-  bool needs_64bit = false;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_mapped_address_compare_needs_64bit(
-      context, source_op, &needs_64bit));
-  if (!needs_64bit) {
+  if (!loom_amdgpu_address_cmp_needs_64bit(
+          loom_low_lower_context_module(context),
+          loom_low_lower_context_fact_table(context), source_op)) {
     return iree_ok_status();
   }
 

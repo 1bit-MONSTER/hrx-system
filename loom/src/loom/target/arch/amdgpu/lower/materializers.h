@@ -126,7 +126,8 @@ iree_status_t loom_amdgpu_value_can_materialize_as_vgpr_address(
     loom_value_id_t value_id, bool* out_can_materialize);
 
 // Returns true when a source address scalar can be materialized as a one-unit
-// SGPR operand for scalar address arithmetic.
+// SGPR operand for scalar address arithmetic. A VGPR source requires shared
+// proof that every active lane carries the same value.
 iree_status_t loom_amdgpu_value_can_materialize_as_sgpr_address(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t value_id, bool* out_can_materialize);
@@ -145,8 +146,8 @@ iree_status_t loom_amdgpu_lookup_or_materialize_vgpr_i64(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t source_value, loom_value_id_t* out_low_value);
 
-// Looks up a uniform address scalar or canonical integer term and returns its
-// low 32-bit SGPR unit, projecting predicates to zero/one.
+// Looks up a subgroup-uniform address scalar and returns its low 32-bit SGPR
+// unit. A canonical VGPR source is projected without changing its binding.
 iree_status_t loom_amdgpu_lookup_or_materialize_sgpr_address(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t source_value, loom_value_id_t* out_low_value);

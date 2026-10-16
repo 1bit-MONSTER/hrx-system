@@ -112,6 +112,92 @@ def _descriptor_sequence_positions(
     return positions
 
 
+def _assert_address_operands_use_materializers(
+    compiled: CompiledLowerRuleSet,
+) -> None:
+    address_patterns = {Scalar("index"), Scalar("offset")}
+    direct_low_guard_kinds = {
+        GuardKind.LOW_VALUE_REGISTER_CLASS,
+        GuardKind.LOW_VALUE_REGISTER_UNIT_COUNT,
+        GuardKind.LOW_VALUE_REGISTER_UNIT_COUNT_EQ,
+    }
+    for rule in compiled.rules:
+        if not address_patterns.intersection(_rule_type_patterns(compiled, rule)):
+            continue
+        guards = compiled.guards[rule.guard_start : rule.guard_start + rule.guard_count]
+        materializable_operands = {
+            (
+                value_ref.source_node_index,
+                value_ref.index,
+                value_ref.element_index,
+            )
+            for guard in guards
+            if guard.kind is GuardKind.VALUE_MATERIALIZABLE
+            for value_ref in (compiled.value_refs[guard.value_ref_index],)
+        }
+        for guard in guards:
+            if guard.kind not in direct_low_guard_kinds:
+                continue
+            value_ref = compiled.value_refs[guard.value_ref_index]
+            if (
+                guard.kind is GuardKind.LOW_VALUE_REGISTER_CLASS
+                and value_ref.kind is SourceValueKind.OPERAND
+            ):
+                assert (
+                    value_ref.source_node_index,
+                    value_ref.index,
+                    value_ref.element_index,
+                ) in materializable_operands
+            else:
+                assert value_ref.kind is not SourceValueKind.OPERAND
+            if guard.kind is GuardKind.LOW_VALUE_REGISTER_UNIT_COUNT_EQ:
+                other_value_ref = compiled.value_refs[guard.other_value_ref_index]
+                assert other_value_ref.kind is not SourceValueKind.OPERAND
+        for emit in compiled.emits[rule.emit_start : rule.emit_start + rule.emit_count]:
+            value_refs = compiled.value_refs[
+                emit.operand_ref_start : emit.operand_ref_start + emit.operand_ref_count
+            ]
+            for value_ref in value_refs:
+                if value_ref.kind is SourceValueKind.OPERAND:
+                    assert value_ref.materializer_index != 0
+
+
+def _operand_width_guards(
+    compiled: CompiledLowerRuleSet,
+    rule: LowerRule,
+) -> set[tuple[int, GuardKind, int]]:
+    width_guard_kinds = {
+        GuardKind.VALUE_SIGNED_BIT_COUNT,
+        GuardKind.VALUE_UNSIGNED_BIT_COUNT,
+    }
+    result: set[tuple[int, GuardKind, int]] = set()
+    for guard in compiled.guards[
+        rule.guard_start : rule.guard_start + rule.guard_count
+    ]:
+        if guard.kind not in width_guard_kinds:
+            continue
+        value_ref = compiled.value_refs[guard.value_ref_index]
+        if value_ref.kind is SourceValueKind.OPERAND:
+            result.add((value_ref.index, guard.kind, guard.u64))
+    return result
+
+
+def _lhs_range_guards(
+    compiled: CompiledLowerRuleSet,
+    rule: LowerRule,
+) -> set[tuple[int, int, int]]:
+    result: set[tuple[int, int, int]] = set()
+    for guard in compiled.guards[
+        rule.guard_start : rule.guard_start + rule.guard_count
+    ]:
+        if guard.kind is not GuardKind.VALUE_I64_RANGE:
+            continue
+        value_ref = compiled.value_refs[guard.value_ref_index]
+        if value_ref.kind is SourceValueKind.OPERAND and value_ref.index == 0:
+            result.add((value_ref.index, guard.minimum_i64, guard.maximum_i64))
+    return result
+
+
 def test_whole_value_select_publishes_complete_recipe_family() -> None:
     compiled = _compiled_integer_rules()
     rules = _rules_for_source_op(compiled, scf.scf_select)
@@ -208,6 +294,34 @@ def test_index_madd_rules_accept_wrapping_carrier_results() -> None:
                     value_ref.kind == SourceValueKind.RESULT
                     and value_ref.name == "result"
                 )
+
+
+def test_narrow_address_rules_materialize_source_carriers() -> None:
+    _assert_address_operands_use_materializers(_compiled_arithmetic_rules())
+    _assert_address_operands_use_materializers(_compiled_integer_rules())
+
+
+def test_nonhomomorphic_index_rules_guard_projected_source_widths() -> None:
+    compiled = _compiled_integer_rules()
+    signed32 = GuardKind.VALUE_SIGNED_BIT_COUNT
+    for source_op in (index.index_min, index.index_max):
+        for rule in _rules_for_source_op(compiled, source_op):
+            assert _operand_width_guards(compiled, rule) == {
+                (0, signed32, 32),
+                (1, signed32, 32),
+            }
+    for source_op, expected_guards in (
+        (index.index_shli, set()),
+        (index.index_shrsi, {(0, signed32, 32)}),
+    ):
+        for rule in _rules_for_source_op(compiled, source_op):
+            assert _operand_width_guards(compiled, rule) == expected_guards
+            assert _lhs_range_guards(compiled, rule) == set()
+    for rule in _rules_for_source_op(compiled, index.index_shrui):
+        assert _operand_width_guards(compiled, rule) == set()
+        assert _lhs_range_guards(compiled, rule) == {
+            (0, -(2**31), (2**32) - 1),
+        }
 
 
 def test_index_bit_operations_cover_scalar_and_vector_registers() -> None:

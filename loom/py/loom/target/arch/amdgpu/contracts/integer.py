@@ -182,6 +182,11 @@ _ADDRESS_I32_DIAGNOSTIC = GuardDiagnostic(
     subject_name="i32",
     constraint_key="amdgpu.address.i32",
 )
+_ADDRESS_32BIT_DIAGNOSTIC = GuardDiagnostic(
+    subject_role="address-width",
+    subject_name="32-bit",
+    constraint_key="amdgpu.address.bits32",
+)
 _BYTE_OFFSET_U32_DIAGNOSTIC = GuardDiagnostic(
     subject_role="byte-offset-width",
     subject_name="u32",
@@ -420,13 +425,10 @@ def _vgpr_binary_rule(
     unsigned_bit_count: int | None = None,
     unsigned_diagnostic: GuardDiagnostic | None = None,
     register_unit_count: int | None = None,
+    source_value_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     register_shape_guards = (
-        (
-            Guard.low_value_register_unit_count("result", register_unit_count),
-            Guard.low_value_register_unit_count("lhs", register_unit_count),
-            Guard.low_value_register_unit_count("rhs", register_unit_count),
-        )
+        (Guard.low_value_register_unit_count("result", register_unit_count),)
         if register_unit_count is not None
         else ()
     )
@@ -444,6 +446,7 @@ def _vgpr_binary_rule(
             Guard.low_value_register_class("result", "amdgpu.vgpr"),
             Guard.value_materializable("lhs", materializer.name),
             Guard.value_materializable("rhs", materializer.name),
+            *source_value_guards,
             *register_shape_guards,
             Guard.descriptor_available(descriptor),
         ),
@@ -469,6 +472,7 @@ def _narrow_address_sgpr_binary_rule(
     signed_diagnostic: GuardDiagnostic | None = None,
     unsigned_bit_count: int | None = None,
     unsigned_diagnostic: GuardDiagnostic | None = None,
+    source_value_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     return DescriptorRule(
         source_op=source_op,
@@ -485,6 +489,7 @@ def _narrow_address_sgpr_binary_rule(
             Guard.low_value_register_unit_count("result", 1),
             Guard.value_materializable("lhs", ADDRESS_SGPR_MATERIALIZER.name),
             Guard.value_materializable("rhs", ADDRESS_SGPR_MATERIALIZER.name),
+            *source_value_guards,
             Guard.descriptor_available(descriptor),
         ),
         emit=(
@@ -508,6 +513,7 @@ def _narrow_address_vgpr_binary_rule(
     source_lhs: str = "lhs",
     source_rhs: str = "rhs",
     lhs_materializer: ValueMaterializer = ADDRESS_VGPR_MATERIALIZER,
+    source_lhs_register_class: str | None = None,
     signed_bit_count: int | None = None,
     signed_diagnostic: GuardDiagnostic | None = None,
     unsigned_bit_count: int | None = None,
@@ -526,6 +532,11 @@ def _narrow_address_vgpr_binary_rule(
             ),
             Guard.low_value_register_class("result", "amdgpu.vgpr"),
             Guard.low_value_register_unit_count("result", 1),
+            *(
+                (Guard.low_value_register_class(source_lhs, source_lhs_register_class),)
+                if source_lhs_register_class is not None
+                else ()
+            ),
             Guard.value_materializable(source_lhs, lhs_materializer.name),
             Guard.value_materializable(source_rhs, ADDRESS_VGPR_MATERIALIZER.name),
             Guard.descriptor_available(descriptor),
@@ -581,28 +592,34 @@ def _vgpr_constant_shift_rule(
     materializer: ValueMaterializer,
     *,
     preserve_source_register: bool = False,
+    preserved_source_materializer: ValueMaterializer | None = None,
     unsigned_bit_count: int | None = None,
     unsigned_diagnostic: GuardDiagnostic | None = None,
     register_unit_count: int | None = None,
+    source_value_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     register_shape_guards = (
-        (
-            Guard.low_value_register_unit_count("result", register_unit_count),
-            Guard.low_value_register_unit_count("lhs", register_unit_count),
-        )
+        (Guard.low_value_register_unit_count("result", register_unit_count),)
         if register_unit_count is not None
         else ()
     )
-    value_guards = (
-        (Guard.low_value_register_class("lhs", "amdgpu.sgpr"),)
-        if preserve_source_register
-        else (Guard.value_materializable("lhs", materializer.name),)
-    )
-    value_operand = (
-        ValueRef.operand("lhs")
-        if preserve_source_register
-        else _materialized_operand("lhs", materializer)
-    )
+    if preserve_source_register:
+        value_guards = (
+            Guard.low_value_register_class("lhs", "amdgpu.sgpr"),
+            *(
+                (Guard.value_materializable("lhs", preserved_source_materializer.name),)
+                if preserved_source_materializer is not None
+                else ()
+            ),
+        )
+        value_operand = (
+            _materialized_operand("lhs", preserved_source_materializer)
+            if preserved_source_materializer is not None
+            else ValueRef.operand("lhs")
+        )
+    else:
+        value_guards = (Guard.value_materializable("lhs", materializer.name),)
+        value_operand = _materialized_operand("lhs", materializer)
     return DescriptorRule(
         source_op=source_op,
         descriptor=descriptor,
@@ -614,6 +631,7 @@ def _vgpr_constant_shift_rule(
             ),
             Guard.low_value_register_class("result", "amdgpu.vgpr"),
             *value_guards,
+            *source_value_guards,
             *register_shape_guards,
             Guard.value_exact_i64("rhs", diagnostic=_SHIFT_AMOUNT_DIAGNOSTIC),
             Guard.value_i64_range(
@@ -1323,6 +1341,7 @@ def _narrow_address_binary_rules(
                 source_lhs=source_lhs,
                 source_rhs=source_rhs,
                 lhs_materializer=ADDRESS_SGPR_MATERIALIZER,
+                source_lhs_register_class="amdgpu.sgpr",
                 unsigned_bit_count=unsigned_bit_count,
                 unsigned_diagnostic=unsigned_diagnostic,
             )
@@ -1386,14 +1405,22 @@ def _signed_index_minmax_rules(
 ) -> tuple[DescriptorRule, ...]:
     sgpr_descriptor = _descriptor(sgpr_descriptor_key)
     vgpr_descriptor = _descriptor(vgpr_descriptor_key)
+    source_value_guards = tuple(
+        Guard.value_signed_bit_count(
+            field,
+            32,
+            diagnostic=_ADDRESS_I32_DIAGNOSTIC,
+        )
+        for field in ("lhs", "rhs")
+    )
     return (
-        _sgpr_binary_rule(
+        _narrow_address_sgpr_binary_rule(
             source_op,
             _INDEX,
             sgpr_descriptor,
             signed_bit_count=32,
             signed_diagnostic=_ADDRESS_I32_DIAGNOSTIC,
-            register_unit_count=1,
+            source_value_guards=source_value_guards,
         ),
         _vgpr_binary_rule(
             source_op,
@@ -1403,6 +1430,7 @@ def _signed_index_minmax_rules(
             signed_bit_count=32,
             signed_diagnostic=_ADDRESS_I32_DIAGNOSTIC,
             register_unit_count=1,
+            source_value_guards=source_value_guards,
         ),
     )
 
@@ -1486,6 +1514,7 @@ def _index_shift_rules(
     inline_descriptor_key: str,
     *,
     preserve_descriptor_key: str | None = None,
+    source_value_guards: tuple[Guard, ...] = (),
 ) -> tuple[DescriptorRule, ...]:
     sgpr_descriptor = _descriptor(sgpr_descriptor_key)
     vgpr_descriptor = _descriptor(vgpr_descriptor_key)
@@ -1496,11 +1525,11 @@ def _index_shift_rules(
         else None
     )
     rules: list[DescriptorRule] = [
-        _sgpr_binary_rule(
+        _narrow_address_sgpr_binary_rule(
             source_op,
             _INDEX,
             sgpr_descriptor,
-            register_unit_count=1,
+            source_value_guards=source_value_guards,
         )
     ]
     if preserve_descriptor is not None:
@@ -1511,7 +1540,9 @@ def _index_shift_rules(
                 preserve_descriptor,
                 ADDRESS_VGPR_MATERIALIZER,
                 preserve_source_register=True,
+                preserved_source_materializer=ADDRESS_SGPR_MATERIALIZER,
                 register_unit_count=1,
+                source_value_guards=source_value_guards,
             )
         )
     rules.append(
@@ -1521,6 +1552,7 @@ def _index_shift_rules(
             inline_descriptor,
             ADDRESS_VGPR_MATERIALIZER,
             register_unit_count=1,
+            source_value_guards=source_value_guards,
         )
     )
     rules.append(
@@ -1534,6 +1566,7 @@ def _index_shift_rules(
             source_lhs="rhs",
             source_rhs="lhs",
             register_unit_count=1,
+            source_value_guards=source_value_guards,
         )
     )
     return tuple(rules)
@@ -1552,8 +1585,8 @@ def _index_div_power_of_two_sgpr_rule() -> DescriptorRule:
                 unsigned_diagnostic=_ADDRESS_U32_DIAGNOSTIC,
             ),
             Guard.low_value_register_class("result", "amdgpu.sgpr"),
-            Guard.low_value_register_class("lhs", "amdgpu.sgpr"),
-            Guard.low_value_register_class("rhs", "amdgpu.sgpr"),
+            Guard.low_value_register_unit_count("result", 1),
+            Guard.value_materializable("lhs", ADDRESS_SGPR_MATERIALIZER.name),
             Guard.value_unsigned_bit_count(
                 "lhs",
                 32,
@@ -1581,7 +1614,10 @@ def _index_div_power_of_two_sgpr_rule() -> DescriptorRule:
             ),
             EmitDescriptorOp(
                 descriptor=shift,
-                operands={"lhs": _DIRECT_LHS, "rhs": ValueRef.temporary("shift")},
+                operands={
+                    "lhs": _materialized_operand("lhs", ADDRESS_SGPR_MATERIALIZER),
+                    "rhs": ValueRef.temporary("shift"),
+                },
                 results={"dst": _RESULT},
             ),
         ),
@@ -1648,7 +1684,8 @@ def _index_rem_power_of_two_sgpr_rule() -> DescriptorRule:
                 unsigned_diagnostic=_ADDRESS_U32_DIAGNOSTIC,
             ),
             Guard.low_value_register_class("result", "amdgpu.sgpr"),
-            Guard.low_value_register_class("lhs", "amdgpu.sgpr"),
+            Guard.low_value_register_unit_count("result", 1),
+            Guard.value_materializable("lhs", ADDRESS_SGPR_MATERIALIZER.name),
             Guard.value_unsigned_bit_count(
                 "lhs",
                 32,
@@ -1676,7 +1713,10 @@ def _index_rem_power_of_two_sgpr_rule() -> DescriptorRule:
             ),
             EmitDescriptorOp(
                 descriptor=bitwise_and,
-                operands={"lhs": _DIRECT_LHS, "rhs": ValueRef.temporary("mask")},
+                operands={
+                    "lhs": _materialized_operand("lhs", ADDRESS_SGPR_MATERIALIZER),
+                    "rhs": ValueRef.temporary("mask"),
+                },
                 results={"dst": _RESULT},
             ),
         ),
@@ -1741,17 +1781,21 @@ def _index_madd_sgpr_rule() -> DescriptorRule:
             Guard.value_type("b", _INDEX),
             Guard.value_type("c", _INDEX),
             Guard.value_type("result", _INDEX),
-            Guard.low_value_register_class("a", "amdgpu.sgpr"),
-            Guard.low_value_register_class("b", "amdgpu.sgpr"),
-            Guard.low_value_register_class("c", "amdgpu.sgpr"),
             Guard.low_value_register_class("result", "amdgpu.sgpr"),
+            Guard.low_value_register_unit_count("result", 1),
+            Guard.value_materializable("a", ADDRESS_SGPR_MATERIALIZER.name),
+            Guard.value_materializable("b", ADDRESS_SGPR_MATERIALIZER.name),
+            Guard.value_materializable("c", ADDRESS_SGPR_MATERIALIZER.name),
             Guard.descriptor_available(multiply),
             Guard.descriptor_available(add),
         ),
         emit=(
             EmitDescriptorOp(
                 descriptor=multiply,
-                operands={"lhs": ValueRef.operand("a"), "rhs": ValueRef.operand("b")},
+                operands={
+                    "lhs": _materialized_operand("a", ADDRESS_SGPR_MATERIALIZER),
+                    "rhs": _materialized_operand("b", ADDRESS_SGPR_MATERIALIZER),
+                },
                 results={"dst": ValueRef.temporary("product")},
                 result_types={"dst": ValueRef.result("result")},
             ),
@@ -1759,7 +1803,7 @@ def _index_madd_sgpr_rule() -> DescriptorRule:
                 descriptor=add,
                 operands={
                     "lhs": ValueRef.temporary("product"),
-                    "rhs": ValueRef.operand("c"),
+                    "rhs": _materialized_operand("c", ADDRESS_SGPR_MATERIALIZER),
                 },
                 results={"dst": ValueRef.result("result")},
             ),
@@ -2057,6 +2101,13 @@ def _rules() -> tuple[DescriptorRule, ...]:
             "amdgpu.s_ashr_i32",
             "amdgpu.v_ashrrev_i32",
             "amdgpu.v_ashrrev_i32.src0_inline",
+            source_value_guards=(
+                Guard.value_signed_bit_count(
+                    "lhs",
+                    32,
+                    diagnostic=_ADDRESS_I32_DIAGNOSTIC,
+                ),
+            ),
         )
     )
     rules.extend(
@@ -2065,6 +2116,14 @@ def _rules() -> tuple[DescriptorRule, ...]:
             "amdgpu.s_lshr_b32",
             "amdgpu.v_lshrrev_b32",
             "amdgpu.v_lshrrev_b32.src0_inline",
+            source_value_guards=(
+                Guard.value_i64_range(
+                    "lhs",
+                    -(2**31),
+                    _UINT32_MAX,
+                    diagnostic=_ADDRESS_32BIT_DIAGNOSTIC,
+                ),
+            ),
         )
     )
     rules.append(_index_madd_sgpr_rule())
