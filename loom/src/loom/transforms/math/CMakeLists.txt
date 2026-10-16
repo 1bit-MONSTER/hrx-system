@@ -50,6 +50,7 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pass_environment
     loom::target::reporting::report
+    loom::util::fact_table_api
   PUBLIC
 )
 

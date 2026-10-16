@@ -1,5 +1,6 @@
-// Exercises the accuracy contracts of native x86 reciprocal-root estimates.
-// The F32 contract covers the AVX/AVX2 estimate; AVX-512 estimates are tighter.
+// Exercises the accuracy contracts of refined native x86 reciprocal-root
+// estimates. F32 uses one Newton step after either AVX/AVX2 or AVX-512
+// estimation; F64 uses two steps after AVX-512 estimation.
 func.def @x86_root_approximate_observations(%first_bits: i32, %second_bits: i32, %output: buffer) {
   %first = scalar.bitcast %first_bits : i32 to f32
   %second = scalar.bitcast %second_bits : i32 to f32
@@ -36,8 +37,7 @@ check.scenario @x86_root_approximate_values {
     %second_bits = check.literal value(1077936128) : i32
     %output = check.generate.fill value(0.0) : tensor<3xf32>
     check.compare<@x86_root_approximate_observations, @x86_root_approximate_oracle>(%first_bits, %second_bits, %output) : (i32, i32, tensor<3xf32>) -> () {
-      // VRSQRTPS/SS bounds relative error by 1.5 * 2^-12.
-      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0003662109375) nan(same) : tensor<3xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(2.384185791015625e-07) nan(same) : tensor<3xf32>
     }
   }
   check.return
@@ -45,8 +45,8 @@ check.scenario @x86_root_approximate_values {
 
 check.benchmark<@x86_root_approximate_values> @x86_root_approximate_benchmark
 
-// VRSQRT14PD/SD bounds relative error below 2^-14. The independent constants
-// keep the oracle available on VM, which does not implement F64 square root.
+// The independent constants keep the oracle available on VM, which does not
+// implement F64 square root.
 func.def @x86_root_f64_approximate_observations(%first_bits: i64, %second_bits: i64, %output: buffer) {
   %first = scalar.bitcast %first_bits : i64 to f64
   %second = scalar.bitcast %second_bits : i64 to f64
@@ -78,10 +78,89 @@ check.scenario @x86_root_f64_approximate_values {
     %second_bits = check.literal value(4613937818241073152) : i64
     %output = check.generate.fill value(0.0) : tensor<3xf64>
     check.compare<@x86_root_f64_approximate_observations, @x86_root_f64_approximate_oracle>(%first_bits, %second_bits, %output) : (i64, i64, tensor<3xf64>) -> () {
-      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(6.103515625e-05) nan(same) : tensor<3xf64>
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(4.4408920985006262e-16) nan(same) : tensor<3xf64>
     }
   }
   check.return
 }
 
 check.benchmark<@x86_root_f64_approximate_values> @x86_root_f64_approximate_benchmark
+
+// Newton arithmetic is only valid for positive normal finite values. AFN
+// preserves the native estimate for every other class, while ARCP exposes that
+// estimate directly for callers that explicitly accept its lower accuracy.
+func.def @x86_root_f32_guard_observations(%zero_bits: i32, %subnormal_bits: i32, %infinity_bits: i32, %nan_bits: i32, %negative_bits: i32, %output: buffer) {
+  %negative = scalar.bitcast %negative_bits : i32 to f32
+  %refined_scalar = scalar.rsqrtf<afn> %negative : f32
+  %raw_scalar = scalar.rsqrtf<arcp|afn> %negative : f32
+  %refined_scalar_bits = scalar.bitcast %refined_scalar : f32 to i32
+  %raw_scalar_bits = scalar.bitcast %raw_scalar : f32 to i32
+  %scalar_mismatch = scalar.xori %refined_scalar_bits, %raw_scalar_bits : i32
+  %input_bits = vector.from_elements %zero_bits, %subnormal_bits, %infinity_bits, %nan_bits : vector<4xi32>
+  %input = vector.bitcast %input_bits : vector<4xi32> to vector<4xf32>
+  %refined = vector.rsqrtf<afn> %input : vector<4xf32>
+  %raw = vector.rsqrtf<arcp|afn> %input : vector<4xf32>
+  %refined_bits = vector.bitcast %refined : vector<4xf32> to vector<4xi32>
+  %raw_bits = vector.bitcast %raw : vector<4xf32> to vector<4xi32>
+  %mismatch = vector.xori %refined_bits, %raw_bits : vector<4xi32>
+  %origin = index.constant 0 : offset
+  %output_view = buffer.view %output[%origin] : buffer -> view<5xi32>
+  view.store %scalar_mismatch, %output_view[0] : i32, view<5xi32>
+  vector.store %mismatch, %output_view[1] : vector<4xi32>, view<5xi32>
+  func.return
+}
+
+func.def @x86_root_f32_guard_oracle(%zero_bits: i32, %subnormal_bits: i32, %infinity_bits: i32, %nan_bits: i32, %negative_bits: i32, %output: buffer) {
+  func.return
+}
+
+func.def @x86_root_f64_guard_observations(%zero_bits: i64, %subnormal_bits: i64, %infinity_bits: i64, %nan_bits: i64, %negative_bits: i64, %output: buffer) {
+  %negative = scalar.bitcast %negative_bits : i64 to f64
+  %refined_scalar = scalar.rsqrtf<afn> %negative : f64
+  %raw_scalar = scalar.rsqrtf<arcp|afn> %negative : f64
+  %refined_scalar_bits = scalar.bitcast %refined_scalar : f64 to i64
+  %raw_scalar_bits = scalar.bitcast %raw_scalar : f64 to i64
+  %scalar_mismatch = scalar.xori %refined_scalar_bits, %raw_scalar_bits : i64
+  %input_bits = vector.from_elements %zero_bits, %subnormal_bits, %infinity_bits, %nan_bits : vector<4xi64>
+  %input = vector.bitcast %input_bits : vector<4xi64> to vector<4xf64>
+  %refined = vector.rsqrtf<afn> %input : vector<4xf64>
+  %raw = vector.rsqrtf<arcp|afn> %input : vector<4xf64>
+  %refined_bits = vector.bitcast %refined : vector<4xf64> to vector<4xi64>
+  %raw_bits = vector.bitcast %raw : vector<4xf64> to vector<4xi64>
+  %mismatch = vector.xori %refined_bits, %raw_bits : vector<4xi64>
+  %origin = index.constant 0 : offset
+  %output_view = buffer.view %output[%origin] : buffer -> view<5xi64>
+  view.store %scalar_mismatch, %output_view[0] : i64, view<5xi64>
+  vector.store %mismatch, %output_view[1] : vector<4xi64>, view<5xi64>
+  func.return
+}
+
+func.def @x86_root_f64_guard_oracle(%zero_bits: i64, %subnormal_bits: i64, %infinity_bits: i64, %nan_bits: i64, %negative_bits: i64, %output: buffer) {
+  func.return
+}
+
+check.scenario @x86_root_approximate_guard_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %f32_zero = check.literal value(0) : i32
+    %f32_subnormal = check.literal value(8388607) : i32
+    %f32_infinity = check.literal value(2139095040) : i32
+    %f32_nan = check.literal value(2143289344) : i32
+    %f32_negative = check.literal value(-1082130432) : i32
+    %f32_output = check.generate.fill value(0) : tensor<5xi32>
+    check.compare<@x86_root_f32_guard_observations, @x86_root_f32_guard_oracle>(%f32_zero, %f32_subnormal, %f32_infinity, %f32_nan, %f32_negative, %f32_output) : (i32, i32, i32, i32, i32, tensor<5xi32>) -> () {
+      check.expect.bitwise actual(%f32_output) expected(%f32_output) : tensor<5xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %f64_zero = check.literal value(0) : i64
+    %f64_subnormal = check.literal value(4503599627370495) : i64
+    %f64_infinity = check.literal value(9218868437227405312) : i64
+    %f64_nan = check.literal value(9221120237041090560) : i64
+    %f64_negative = check.literal value(-4616189618054758400) : i64
+    %f64_output = check.generate.fill value(0) : tensor<5xi64>
+    check.compare<@x86_root_f64_guard_observations, @x86_root_f64_guard_oracle>(%f64_zero, %f64_subnormal, %f64_infinity, %f64_nan, %f64_negative, %f64_output) : (i64, i64, i64, i64, i64, tensor<5xi64>) -> () {
+      check.expect.bitwise actual(%f64_output) expected(%f64_output) : tensor<5xi64>
+    }
+  }
+  check.return
+}

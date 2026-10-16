@@ -126,6 +126,8 @@ typedef enum loom_target_math_recipe_e {
   LOOM_TARGET_MATH_RECIPE_APPROXIMATE_SIN_TURNS_F32 = 19,
   LOOM_TARGET_MATH_RECIPE_APPROXIMATE_COS_TURNS_F32 = 20,
   LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32 = 21,
+  LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE = 22,
+  LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO = 23,
 } loom_target_math_recipe_t;
 
 // Representation used to evaluate a target-neutral math recipe.

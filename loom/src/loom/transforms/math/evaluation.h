@@ -30,6 +30,7 @@ typedef enum loom_math_evaluation_unary_op_e {
   LOOM_MATH_EVALUATION_UNARY_TANHF = 6,
   LOOM_MATH_EVALUATION_UNARY_TRUNCF = 7,
   LOOM_MATH_EVALUATION_UNARY_SQRTF = 8,
+  LOOM_MATH_EVALUATION_UNARY_RSQRTF = 9,
 } loom_math_evaluation_unary_op_t;
 
 typedef enum loom_math_evaluation_binary_op_e {
@@ -48,6 +49,8 @@ typedef struct loom_math_evaluation_value_t {
 } loom_math_evaluation_value_t;
 
 typedef struct loom_math_evaluation_t {
+  // Authored primary operand retained for source-fact queries.
+  loom_value_id_t source_input;
   // Imported primary source operand.
   loom_math_evaluation_value_t input;
   // Imported secondary source operand for binary recipes.
@@ -129,6 +132,11 @@ iree_status_t loom_math_evaluation_build_clamp(
 iree_status_t loom_math_evaluation_build_ordered_greater_equal(
     loom_math_evaluation_t* evaluation, const loom_math_evaluation_value_t* lhs,
     const loom_math_evaluation_value_t* rhs, loom_value_id_t* out_value);
+
+// Classifies positive normal finite lanes using their IEEE bit interval.
+iree_status_t loom_math_evaluation_build_positive_normal_finite_condition(
+    loom_math_evaluation_t* evaluation,
+    const loom_math_evaluation_value_t* input, loom_value_id_t* out_condition);
 
 // Selects between two values using a scalar or lane-wise condition.
 iree_status_t loom_math_evaluation_build_select(

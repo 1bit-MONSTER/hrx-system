@@ -73,6 +73,7 @@ def _uniform_vector_constant_rule(
     lane_move_descriptor: Descriptor | None,
     guards: tuple[Guard, ...],
     priority: int,
+    result_register_class: str | None = None,
 ) -> DescriptorRule:
     """Constructs a uniform vector from one immediate scalar payload."""
     bits = ValueRef.temporary("bits")
@@ -112,6 +113,11 @@ def _uniform_vector_constant_rule(
         guards=(
             Guard.value_type("result", result_type),
             *guards,
+            *(
+                (Guard.low_value_register_class("result", result_register_class),)
+                if result_register_class is not None
+                else ()
+            ),
         ),
         emit=tuple(emits),
         priority=priority,
@@ -158,6 +164,7 @@ def integer_vector_constant_rule(
     broadcast_descriptor: Descriptor,
     *,
     priority: int = 0,
+    result_register_class: str | None = None,
 ) -> DescriptorRule:
     """Constructs a uniform integer vector from one exact element value."""
     if element_bit_width not in (8, 16, 32, 64):
@@ -183,6 +190,7 @@ def integer_vector_constant_rule(
             ),
         ),
         priority,
+        result_register_class,
     )
 
 
@@ -226,6 +234,7 @@ def integer_vector_splat_rule(
     broadcast_immediates: dict[str, int] | None = None,
     lane_type: TypePattern | None = None,
     priority: int = 0,
+    result_register_class: str | None = None,
 ) -> DescriptorRule:
     """Broadcasts an integer scalar directly or through an XMM transfer."""
     if lane_move_descriptor is None:
@@ -266,6 +275,11 @@ def integer_vector_splat_rule(
         guards=(
             Guard.value_type("scalar", scalar_type),
             Guard.value_type("result", result_type),
+            *(
+                (Guard.low_value_register_class("result", result_register_class),)
+                if result_register_class is not None
+                else ()
+            ),
         ),
         emit=emits,
         priority=priority,
@@ -501,6 +515,7 @@ def floating_vector_constant_bits_rule(
     broadcast_descriptor: Descriptor,
     *,
     priority: int = 0,
+    result_register_class: str | None = None,
 ) -> DescriptorRule:
     """Constructs a uniform float vector from exact element-format bits."""
     if element_type in ("f8E4M3", "f8E5M2", "f16", "bf16"):
@@ -533,6 +548,7 @@ def floating_vector_constant_bits_rule(
             Guard.value_exact_float("result"),
         ),
         priority,
+        result_register_class,
     )
 
 

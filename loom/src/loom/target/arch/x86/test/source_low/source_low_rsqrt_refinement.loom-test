@@ -1,0 +1,124 @@
+// RUN: emit source-low output=low
+
+// AVX2 refines a low-XMM F32 estimate once and uses a lane-wise bit-range
+// guard to preserve the raw result outside the positive-normal-finite domain.
+x86.target<avx2> @target
+
+func.def target(@target) @avx2_low_rsqrt_refinement(%value: vector<2xf32>) -> (vector<2xf32>) {
+  %result = vector.rsqrtf<afn> %value : vector<2xf32>
+  func.return %result : vector<2xf32>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xf32>) -> (vector<2xf32>)}) @avx2_low_rsqrt_refinement(%value: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %19 = mov.imm32 1056964608
+  %20 = vmovd.xmm.gpr32 %19
+  %21 = avx2.vpbroadcastd.xmm %20
+  %22 = mov.imm32 1069547520
+  %23 = vmovd.xmm.gpr32 %22
+  %24 = avx2.vpbroadcastd.xmm %23
+  %25 = vrsqrtps.xmm %value
+  %26 = vmulps.xmm %value, %25
+  %27 = vmulps.xmm %26, %25
+  %28 = vmulps.xmm %21, %27
+  %29 = vsubps.xmm %24, %28
+  %30 = vmulps.xmm %25, %29
+  %31 = mov.imm32 8388608
+  %32 = vmovd.xmm.gpr32 %31
+  %33 = avx2.vpbroadcastd.xmm %32
+  %34 = mov.imm32 2130706431
+  %35 = vmovd.xmm.gpr32 %34
+  %36 = avx2.vpbroadcastd.xmm %35
+  %37 = vpsubd.xmm %value, %33
+  %38 = vpminud.xmm %37, %36
+  %39 = vpcmpeqd.xmm %38, %37
+  %result = vpblendvb.xmm %25, %30, %39
+  return %result
+}
+
+// ====
+// RUN: emit source-low output=low
+
+// AVX-512 refines an F64 estimate twice. The one-element vector remains
+// lane-wise through the recipe and lowers through the compact XMM carrier.
+x86.target<avx512> @target
+
+func.def target(@target) @avx512_single_rsqrt_refinement(%value: vector<1xf64>) -> (vector<1xf64>) {
+  %result = vector.rsqrtf<afn> %value : vector<1xf64>
+  func.return %result : vector<1xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<1xf64>) -> (vector<1xf64>)}) @avx512_single_rsqrt_refinement(%value: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %35 = mov.imm64 4602678819172646912
+  %36 = vmovq.xmm.gpr64 %35
+  %37 = avx2.vpbroadcastq.xmm %36
+  %38 = mov.imm64 4609434218613702656
+  %39 = vmovq.xmm.gpr64 %38
+  %40 = avx2.vpbroadcastq.xmm %39
+  %41 = vrsqrt14pd.xmm %value
+  %42 = vmulpd.xmm %value, %41
+  %43 = vmulpd.xmm %42, %41
+  %44 = vmulpd.xmm %37, %43
+  %45 = vsubpd.xmm %40, %44
+  %46 = vmulpd.xmm %41, %45
+  %47 = vmulpd.xmm %value, %46
+  %48 = vmulpd.xmm %47, %46
+  %49 = vmulpd.xmm %37, %48
+  %50 = vsubpd.xmm %40, %49
+  %51 = vmulpd.xmm %46, %50
+  %52 = vpermilpd.xmm %value, 0
+  %53 = vmovq.gpr64.xmm %52
+  %54 = mov.imm64 -4503599627370496
+  %55 = copy %53 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %56 = add.gpr64 %55, %54
+  %57 = mov.imm64 9214364837600034815
+  %58 = cmp.gpr64 %56, %57, "ule"
+  %59 = mov.imm32 0
+  %60 = sub.gpr32 %59, %58
+  %61 = vmovd.xmm.gpr32 %60
+  %62 = avx2.vpbroadcastd.xmm %61
+  %result = vpblendvb.xmm %41, %51, %62
+  return %result
+}
+
+// ====
+// RUN: emit source-low output=low
+
+// Facts retained through scalar selection and splat prove every lane is in the
+// refinement domain, so no runtime domain guard remains.
+x86.target<avx2> @target
+
+func.def target(@target) @rsqrt_refinement_proven_domain(%condition: i1) -> (vector<8xf32>) {
+  %positive_lower = scalar.constant 1.0 : f32
+  %positive_upper = scalar.constant 4.0 : f32
+  %scalar = scf.select %condition, %positive_lower, %positive_upper : f32
+  %value = vector.splat %scalar : vector<8xf32>
+  %result = vector.rsqrtf<afn> %value : vector<8xf32>
+  func.return %result : vector<8xf32>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (i1) -> (vector<8xf32>)}) @rsqrt_refinement_proven_domain(%condition: reg<x86.gpr32>) -> (reg<x86.ymm>) asm {
+  %17 = mov.imm32 1065353216
+  %positive_lower = vmovd.xmm.gpr32 %17
+  %19 = mov.imm32 1082130432
+  %positive_upper = vmovd.xmm.gpr32 %19
+  %21 = vmovd.xmm.gpr32 %condition
+  %22 = vpsllq.xmm %21, 63
+  %scalar = vblendvpd.xmm %positive_upper, %positive_lower, %22
+  %value = vbroadcastss.ymm %scalar
+  %25 = mov.imm32 1056964608
+  %26 = vmovd.xmm.gpr32 %25
+  %27 = vpbroadcastd.ymm %26
+  %28 = mov.imm32 1069547520
+  %29 = vmovd.xmm.gpr32 %28
+  %30 = vpbroadcastd.ymm %29
+  %31 = vrsqrtps.ymm %value
+  %32 = vmulps.ymm %value, %31
+  %33 = vmulps.ymm %32, %31
+  %34 = vmulps.ymm %27, %33
+  %35 = vsubps.ymm %30, %34
+  %result = vmulps.ymm %31, %35
+  return %result
+}

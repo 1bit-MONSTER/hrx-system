@@ -13,6 +13,7 @@
 #include "loom/transforms/math/evaluation.h"
 #include "loom/transforms/math/inverse_hyperbolic.h"
 #include "loom/transforms/math/patterns.h"
+#include "loom/util/fact_extensions.h"
 
 typedef iree_status_t (*loom_math_legalize_binary_build_fn_t)(
     loom_builder_t* builder, uint8_t instance_flags, loom_value_id_t lhs,
@@ -88,6 +89,119 @@ static iree_status_t loom_math_legalize_build_rsqrt_sqrt_div(
       &root));
   return loom_math_legalize_build_division(builder, source, &one, &root,
                                            out_value);
+}
+
+static bool loom_math_legalize_facts_prove_positive_normal_finite(
+    loom_scalar_type_t element_type, loom_value_facts_t facts) {
+  if (loom_value_facts_is_positive(facts) &&
+      loom_value_facts_is_finite(facts) &&
+      loom_value_facts_is_not_subnormal(facts)) {
+    return true;
+  }
+  switch (element_type) {
+    case LOOM_SCALAR_TYPE_F32:
+      return loom_value_facts_float_range_within(element_type, facts, 0x1p-126,
+                                                 0x1.fffffep+127);
+    case LOOM_SCALAR_TYPE_F64:
+      return loom_value_facts_float_range_within(element_type, facts, 0x1p-1022,
+                                                 0x1.fffffffffffffp+1023);
+    default:
+      return false;
+  }
+}
+
+static bool loom_math_legalize_source_proves_positive_normal_finite(
+    const loom_math_legalize_source_t* source) {
+  const loom_scalar_type_t element_type =
+      loom_type_element_type(source->source_result_type);
+  const loom_value_facts_t facts =
+      loom_rewriter_value_facts(source->rewriter, source->source_input);
+  if (loom_type_is_scalar(source->source_result_type)) {
+    return loom_math_legalize_facts_prove_positive_normal_finite(element_type,
+                                                                 facts);
+  }
+  if (source->rewriter->fact_table == NULL) {
+    return false;
+  }
+
+  const loom_fact_context_t* fact_context =
+      &source->rewriter->fact_table->context;
+  loom_value_fact_uniform_element_t uniform = {0};
+  if (loom_value_facts_query_uniform_element(fact_context, facts, &uniform)) {
+    return loom_math_legalize_facts_prove_positive_normal_finite(
+        element_type, uniform.element);
+  }
+
+  uint64_t element_count = 0;
+  if (!loom_type_static_element_count(source->source_result_type,
+                                      &element_count)) {
+    return false;
+  }
+  loom_value_fact_small_static_lanes_t lanes = {0};
+  if (!loom_value_facts_query_small_static_lanes(fact_context, facts, &lanes) ||
+      lanes.count != element_count) {
+    return false;
+  }
+  for (iree_host_size_t i = 0; i < lanes.count; ++i) {
+    if (!loom_math_legalize_facts_prove_positive_normal_finite(
+            element_type, lanes.lanes[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static iree_status_t loom_math_legalize_build_rsqrt_newton(
+    loom_builder_t* builder, loom_math_legalize_source_t* source,
+    iree_host_size_t step_count, loom_math_legalize_value_t* out_value) {
+  loom_math_legalize_value_t half = loom_math_evaluation_value_invalid();
+  loom_math_legalize_value_t one_and_half =
+      loom_math_evaluation_value_invalid();
+  loom_math_legalize_value_t estimate = loom_math_evaluation_value_invalid();
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_build_constant(builder, source, 0.5, &half));
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_build_constant(builder, source, 1.5, &one_and_half));
+  IREE_RETURN_IF_ERROR(loom_math_legalize_build_unary(
+      builder, source, LOOM_MATH_EVALUATION_UNARY_RSQRTF, &source->input,
+      &estimate));
+
+  loom_math_legalize_value_t refined = estimate;
+  for (iree_host_size_t i = 0; i < step_count; ++i) {
+    loom_math_legalize_value_t scaled = loom_math_evaluation_value_invalid();
+    loom_math_legalize_value_t correction_product =
+        loom_math_evaluation_value_invalid();
+    loom_math_legalize_value_t half_product =
+        loom_math_evaluation_value_invalid();
+    loom_math_legalize_value_t correction =
+        loom_math_evaluation_value_invalid();
+    IREE_RETURN_IF_ERROR(loom_math_legalize_build_binary(
+        builder, source, LOOM_MATH_EVALUATION_BINARY_MULF, &source->input,
+        &refined, &scaled));
+    IREE_RETURN_IF_ERROR(loom_math_legalize_build_binary(
+        builder, source, LOOM_MATH_EVALUATION_BINARY_MULF, &scaled, &refined,
+        &correction_product));
+    IREE_RETURN_IF_ERROR(loom_math_legalize_build_binary(
+        builder, source, LOOM_MATH_EVALUATION_BINARY_MULF, &half,
+        &correction_product, &half_product));
+    IREE_RETURN_IF_ERROR(loom_math_legalize_build_binary(
+        builder, source, LOOM_MATH_EVALUATION_BINARY_SUBF, &one_and_half,
+        &half_product, &correction));
+    IREE_RETURN_IF_ERROR(loom_math_legalize_build_binary(
+        builder, source, LOOM_MATH_EVALUATION_BINARY_MULF, &refined,
+        &correction, &refined));
+  }
+
+  if (loom_math_legalize_source_proves_positive_normal_finite(source)) {
+    *out_value = refined;
+    return iree_ok_status();
+  }
+  loom_value_id_t condition = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(
+      loom_math_evaluation_build_positive_normal_finite_condition(
+          source, &source->input, &condition));
+  return loom_math_evaluation_build_select(source, condition, &refined,
+                                           &estimate, out_value);
 }
 
 static iree_status_t loom_math_legalize_build_ternary(
@@ -903,6 +1017,12 @@ static iree_status_t loom_math_legalize_build_evaluated_recipe(
     case LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV:
       return loom_math_legalize_build_rsqrt_sqrt_div(&rewriter->builder, source,
                                                      out_value);
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE:
+      return loom_math_legalize_build_rsqrt_newton(&rewriter->builder, source,
+                                                   1, out_value);
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO:
+      return loom_math_legalize_build_rsqrt_newton(&rewriter->builder, source,
+                                                   2, out_value);
     case LOOM_TARGET_MATH_RECIPE_APPROXIMATE_EXP2_F32:
       return loom_math_approximate_f32_build(
           source, LOOM_MATH_APPROXIMATE_F32_OP_EXP2, &source->input, out_value);
@@ -977,6 +1097,8 @@ static bool loom_math_legalize_elementwise_recipe_is_supported(
     case LOOM_TARGET_MATH_RECIPE_GELU_ERF_F32:
     case LOOM_TARGET_MATH_RECIPE_GELU_LOGISTIC_F32:
     case LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV:
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE:
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO:
     case LOOM_TARGET_MATH_RECIPE_APPROXIMATE_EXP2_F32:
     case LOOM_TARGET_MATH_RECIPE_APPROXIMATE_SIN_TURNS_F32:
     case LOOM_TARGET_MATH_RECIPE_APPROXIMATE_COS_TURNS_F32:

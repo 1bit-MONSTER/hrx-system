@@ -186,6 +186,10 @@ iree_string_view_t loom_target_math_recipe_name(
       return IREE_SV("approximate-cos-turns-f32");
     case LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32:
       return IREE_SV("inverse-hyperbolic-f32");
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE:
+      return IREE_SV("rsqrt-newton-one");
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO:
+      return IREE_SV("rsqrt-newton-two");
     case LOOM_TARGET_MATH_RECIPE_UNKNOWN:
       return IREE_SV("unknown");
   }
