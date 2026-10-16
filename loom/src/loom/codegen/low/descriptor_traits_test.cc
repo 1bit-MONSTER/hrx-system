@@ -76,10 +76,14 @@ TEST(LowDescriptorTraitsTest, RetainsIntrinsicWriteSpaceFamily) {
 
 TEST(LowDescriptorTraitsTest, WriteBoundsDoNotHideFencesOrUnknownEffects) {
   loom_low_effect_t effects[] = {
-      {.kind = LOOM_LOW_EFFECT_KIND_WRITE,
-       .memory_space = LOOM_LOW_MEMORY_SPACE_GLOBAL},
-      {.kind = LOOM_LOW_EFFECT_KIND_WRITE,
-       .memory_space = LOOM_LOW_MEMORY_SPACE_WORKGROUP},
+      {
+          .kind = LOOM_LOW_EFFECT_KIND_WRITE,
+          .memory_space = LOOM_LOW_MEMORY_SPACE_GLOBAL,
+      },
+      {
+          .kind = LOOM_LOW_EFFECT_KIND_WRITE,
+          .memory_space = LOOM_LOW_MEMORY_SPACE_WORKGROUP,
+      },
   };
   const loom_low_descriptor_layout_t layout = {.effect_count = 2};
   const loom_low_descriptor_t descriptor = {};
