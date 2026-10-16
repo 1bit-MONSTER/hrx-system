@@ -38,6 +38,8 @@ loom_corpus_sources(
     "float/exponential.loom"
     "float/extrema.loom"
     "float/half_extrema.loom"
+    "float/inverse_hyperbolic.loom"
+    "float/inverse_hyperbolic_narrow.loom"
     "float/logarithm.loom"
     "float/narrow_reduction.loom"
     "float/rounding.loom"
@@ -96,6 +98,16 @@ loom_corpus_sources(
     "vector/packed/selection.loom"
     "vector/reductions.loom"
     "vector/selection.loom"
+)
+
+loom_module(
+  NAME
+    inverse_hyperbolic_narrow
+  SRCS
+    "float/inverse_hyperbolic_narrow.loom"
+  MODE merge
+  OUTPUT_FORMAT bc
+  STRICT_DEPS
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

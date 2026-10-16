@@ -245,6 +245,12 @@ static loom_target_math_op_t loom_math_legalize_scalar_op_kind(
       return LOOM_TARGET_MATH_OP_LOG2F;
     case LOOM_OP_SCALAR_TANHF:
       return LOOM_TARGET_MATH_OP_TANHF;
+    case LOOM_OP_SCALAR_ASINHF:
+      return LOOM_TARGET_MATH_OP_ASINHF;
+    case LOOM_OP_SCALAR_ACOSHF:
+      return LOOM_TARGET_MATH_OP_ACOSHF;
+    case LOOM_OP_SCALAR_ATANHF:
+      return LOOM_TARGET_MATH_OP_ATANHF;
     case LOOM_OP_SCALAR_POWF:
       return LOOM_TARGET_MATH_OP_POWF;
     case LOOM_OP_SCALAR_CEILF:
@@ -303,6 +309,12 @@ static loom_target_math_op_t loom_math_legalize_vector_op_kind(
       return LOOM_TARGET_MATH_OP_LOG2F;
     case LOOM_OP_VECTOR_TANHF:
       return LOOM_TARGET_MATH_OP_TANHF;
+    case LOOM_OP_VECTOR_ASINHF:
+      return LOOM_TARGET_MATH_OP_ASINHF;
+    case LOOM_OP_VECTOR_ACOSHF:
+      return LOOM_TARGET_MATH_OP_ACOSHF;
+    case LOOM_OP_VECTOR_ATANHF:
+      return LOOM_TARGET_MATH_OP_ATANHF;
     case LOOM_OP_VECTOR_POWF:
       return LOOM_TARGET_MATH_OP_POWF;
     case LOOM_OP_VECTOR_CEILF:

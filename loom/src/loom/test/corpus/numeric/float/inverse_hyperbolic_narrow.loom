@@ -1,0 +1,373 @@
+// Narrow source encodings cross a runtime buffer boundary. Finite
+// results are measured as unsigned encodings, exactly represented in f32. An
+// absolute distance of one is one source-format ULP, independent of binade.
+// Zero signs stay distinct; infinities and NaNs preserve their classification.
+// AFN permits the f32 approximation to round across a narrow-format midpoint.
+// Observation functions accept four-lane packets so correctness and exhaustive
+// stress scenarios exercise the same compiled body.
+// Directed inputs cover zeros, subnormal/normal limits, threshold neighbors,
+// domain edges, and non-finite encodings (FP8 E4M3 has no infinity).
+
+func.def inline @inverse_f8e4m3_scalar_measure(%value: f8E4M3) -> (f32) {
+  %wide = scalar.extf %value : f8E4M3 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f8E4M3 to i8
+  %unsigned = scalar.extui %bits : i8 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f8e4m3_vector_measure(%value: vector<4xf8E4M3>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf8E4M3> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf8E4M3> to vector<4xi8>
+  %unsigned = vector.extui %bits : vector<4xi8> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_f8e5m2_scalar_measure(%value: f8E5M2) -> (f32) {
+  %wide = scalar.extf %value : f8E5M2 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f8E5M2 to i8
+  %unsigned = scalar.extui %bits : i8 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f8e5m2_vector_measure(%value: vector<4xf8E5M2>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf8E5M2> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf8E5M2> to vector<4xi8>
+  %unsigned = vector.extui %bits : vector<4xi8> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_f16_scalar_measure(%value: f16) -> (f32) {
+  %wide = scalar.extf %value : f16 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f16 to i16
+  %unsigned = scalar.extui %bits : i16 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f16_vector_measure(%value: vector<4xf16>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf16> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf16> to vector<4xi16>
+  %unsigned = vector.extui %bits : vector<4xi16> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_bf16_scalar_measure(%value: bf16) -> (f32) {
+  %wide = scalar.extf %value : bf16 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : bf16 to i16
+  %unsigned = scalar.extui %bits : i16 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_bf16_vector_measure(%value: vector<4xbf16>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xbf16> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xbf16> to vector<4xi16>
+  %unsigned = vector.extui %bits : vector<4xi16> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def public @inverse_f8e4m3_observations(%packet_count: index, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<[%packet_count]x4xf8E4M3>
+  %results = buffer.view %output[%origin] : buffer -> view<6x[%packet_count]x4xf32>
+  %begin = index.constant 0 : index
+  %packet_width = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %packet_count step %step] {
+    %value = vector.load %source[%i, 0] : view<[%packet_count]x4xf8E4M3> -> vector<4xf8E4M3>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf8E4M3>
+    %asinhf_wide = func.call @inverse_f8e4m3_vector_measure(%asinhf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf8E4M3>
+    %acoshf_wide = func.call @inverse_f8e4m3_vector_measure(%acoshf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf8E4M3>
+    %atanhf_wide = func.call @inverse_f8e4m3_vector_measure(%atanhf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    scf.for %j = [%begin to %packet_width step %step] {
+      %lane = view.load %source[%i, %j] : view<[%packet_count]x4xf8E4M3> -> f8E4M3
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f8E4M3
+      %scalar_asinhf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_asinhf) : (f8E4M3) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f8E4M3
+      %scalar_acoshf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_acoshf) : (f8E4M3) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f8E4M3
+      %scalar_atanhf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_atanhf) : (f8E4M3) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+    }
+  }
+  func.return
+}
+
+func.def @inverse_f8e4m3_inputs(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %inputs = buffer.view %input[%origin] : buffer -> view<16xi8>
+  %positive_zero_input = scalar.constant 0 : i8
+  %negative_zero_input = scalar.constant -128 : i8
+  %min_subnormal = scalar.constant 1 : i8
+  %max_subnormal = scalar.constant 7 : i8
+  %min_normal = scalar.constant 8 : i8
+  %before_half = scalar.constant 47 : i8
+  %half = scalar.constant 48 : i8
+  %after_half = scalar.constant 49 : i8
+  %before_one = scalar.constant 55 : i8
+  %positive_domain_endpoint = scalar.constant 56 : i8
+  %after_one = scalar.constant 57 : i8
+  %negative_domain_endpoint = scalar.constant -72 : i8
+  %negative_after_one = scalar.constant -71 : i8
+  %max_finite = scalar.constant 126 : i8
+  %infinity_or_nan = scalar.constant 127 : i8
+  %nan = scalar.constant -1 : i8
+  %values = vector.from_elements %positive_zero_input, %negative_zero_input, %min_subnormal, %max_subnormal, %min_normal, %before_half, %half, %after_half, %before_one, %positive_domain_endpoint, %after_one, %negative_domain_endpoint, %negative_after_one, %max_finite, %infinity_or_nan, %nan : vector<16xi8>
+  vector.store %values, %inputs[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+check.scenario @inverse_f8e4m3_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(4) : index
+    %input = check.generate.fill value(0) : tensor<16xi8>
+    check.generate<@inverse_f8e4m3_inputs>(%input) : (tensor<16xi8>) -> ()
+    %output = check.generate.fill value(0.0) : tensor<6x16xf32>
+    check.compare<@inverse_f8e4m3_observations>(%packet_count, %input, %output) : (index, tensor<16xi8>, tensor<6x16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x16xf32>
+    }
+  }
+  check.return
+}
+
+func.def public @inverse_f8e5m2_observations(%packet_count: index, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<[%packet_count]x4xf8E5M2>
+  %results = buffer.view %output[%origin] : buffer -> view<6x[%packet_count]x4xf32>
+  %begin = index.constant 0 : index
+  %packet_width = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %packet_count step %step] {
+    %value = vector.load %source[%i, 0] : view<[%packet_count]x4xf8E5M2> -> vector<4xf8E5M2>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf8E5M2>
+    %asinhf_wide = func.call @inverse_f8e5m2_vector_measure(%asinhf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf8E5M2>
+    %acoshf_wide = func.call @inverse_f8e5m2_vector_measure(%acoshf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf8E5M2>
+    %atanhf_wide = func.call @inverse_f8e5m2_vector_measure(%atanhf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    scf.for %j = [%begin to %packet_width step %step] {
+      %lane = view.load %source[%i, %j] : view<[%packet_count]x4xf8E5M2> -> f8E5M2
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f8E5M2
+      %scalar_asinhf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_asinhf) : (f8E5M2) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f8E5M2
+      %scalar_acoshf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_acoshf) : (f8E5M2) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f8E5M2
+      %scalar_atanhf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_atanhf) : (f8E5M2) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+    }
+  }
+  func.return
+}
+
+func.def @inverse_f8e5m2_inputs(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %inputs = buffer.view %input[%origin] : buffer -> view<16xi8>
+  %positive_zero_input = scalar.constant 0 : i8
+  %negative_zero_input = scalar.constant -128 : i8
+  %min_subnormal = scalar.constant 1 : i8
+  %max_subnormal = scalar.constant 3 : i8
+  %min_normal = scalar.constant 4 : i8
+  %before_half = scalar.constant 55 : i8
+  %half = scalar.constant 56 : i8
+  %after_half = scalar.constant 57 : i8
+  %before_one = scalar.constant 59 : i8
+  %positive_domain_endpoint = scalar.constant 60 : i8
+  %after_one = scalar.constant 61 : i8
+  %negative_domain_endpoint = scalar.constant -68 : i8
+  %negative_after_one = scalar.constant -67 : i8
+  %max_finite = scalar.constant 123 : i8
+  %infinity_or_nan = scalar.constant 124 : i8
+  %nan = scalar.constant 126 : i8
+  %values = vector.from_elements %positive_zero_input, %negative_zero_input, %min_subnormal, %max_subnormal, %min_normal, %before_half, %half, %after_half, %before_one, %positive_domain_endpoint, %after_one, %negative_domain_endpoint, %negative_after_one, %max_finite, %infinity_or_nan, %nan : vector<16xi8>
+  vector.store %values, %inputs[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+check.scenario @inverse_f8e5m2_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(4) : index
+    %input = check.generate.fill value(0) : tensor<16xi8>
+    check.generate<@inverse_f8e5m2_inputs>(%input) : (tensor<16xi8>) -> ()
+    %output = check.generate.fill value(0.0) : tensor<6x16xf32>
+    check.compare<@inverse_f8e5m2_observations>(%packet_count, %input, %output) : (index, tensor<16xi8>, tensor<6x16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x16xf32>
+    }
+  }
+  check.return
+}
+
+func.def public @inverse_f16_observations(%packet_count: index, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<[%packet_count]x4xf16>
+  %results = buffer.view %output[%origin] : buffer -> view<6x[%packet_count]x4xf32>
+  %begin = index.constant 0 : index
+  %packet_width = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %packet_count step %step] {
+    %value = vector.load %source[%i, 0] : view<[%packet_count]x4xf16> -> vector<4xf16>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf16>
+    %asinhf_wide = func.call @inverse_f16_vector_measure(%asinhf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf16>
+    %acoshf_wide = func.call @inverse_f16_vector_measure(%acoshf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf16>
+    %atanhf_wide = func.call @inverse_f16_vector_measure(%atanhf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    scf.for %j = [%begin to %packet_width step %step] {
+      %lane = view.load %source[%i, %j] : view<[%packet_count]x4xf16> -> f16
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f16
+      %scalar_asinhf_wide = func.call @inverse_f16_scalar_measure(%scalar_asinhf) : (f16) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f16
+      %scalar_acoshf_wide = func.call @inverse_f16_scalar_measure(%scalar_acoshf) : (f16) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f16
+      %scalar_atanhf_wide = func.call @inverse_f16_scalar_measure(%scalar_atanhf) : (f16) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+    }
+  }
+  func.return
+}
+
+func.def @inverse_f16_inputs(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %inputs = buffer.view %input[%origin] : buffer -> view<16xi16>
+  %positive_zero_input = scalar.constant 0 : i16
+  %negative_zero_input = scalar.constant -32768 : i16
+  %min_subnormal = scalar.constant 1 : i16
+  %max_subnormal = scalar.constant 1023 : i16
+  %min_normal = scalar.constant 1024 : i16
+  %before_half = scalar.constant 14335 : i16
+  %half = scalar.constant 14336 : i16
+  %after_half = scalar.constant 14337 : i16
+  %before_one = scalar.constant 15359 : i16
+  %positive_domain_endpoint = scalar.constant 15360 : i16
+  %after_one = scalar.constant 15361 : i16
+  %negative_domain_endpoint = scalar.constant -17408 : i16
+  %negative_after_one = scalar.constant -17407 : i16
+  %max_finite = scalar.constant 31743 : i16
+  %infinity_or_nan = scalar.constant 31744 : i16
+  %nan = scalar.constant 32256 : i16
+  %values = vector.from_elements %positive_zero_input, %negative_zero_input, %min_subnormal, %max_subnormal, %min_normal, %before_half, %half, %after_half, %before_one, %positive_domain_endpoint, %after_one, %negative_domain_endpoint, %negative_after_one, %max_finite, %infinity_or_nan, %nan : vector<16xi16>
+  vector.store %values, %inputs[0] : vector<16xi16>, view<16xi16>
+  func.return
+}
+
+check.scenario @inverse_f16_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(4) : index
+    %input = check.generate.fill value(0) : tensor<16xi16>
+    check.generate<@inverse_f16_inputs>(%input) : (tensor<16xi16>) -> ()
+    %output = check.generate.fill value(0.0) : tensor<6x16xf32>
+    check.compare<@inverse_f16_observations>(%packet_count, %input, %output) : (index, tensor<16xi16>, tensor<6x16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x16xf32>
+    }
+  }
+  check.return
+}
+
+func.def public @inverse_bf16_observations(%packet_count: index, %input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<[%packet_count]x4xbf16>
+  %results = buffer.view %output[%origin] : buffer -> view<6x[%packet_count]x4xf32>
+  %begin = index.constant 0 : index
+  %packet_width = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %packet_count step %step] {
+    %value = vector.load %source[%i, 0] : view<[%packet_count]x4xbf16> -> vector<4xbf16>
+    %asinhf = vector.asinhf<afn> %value : vector<4xbf16>
+    %asinhf_wide = func.call @inverse_bf16_vector_measure(%asinhf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xbf16>
+    %acoshf_wide = func.call @inverse_bf16_vector_measure(%acoshf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xbf16>
+    %atanhf_wide = func.call @inverse_bf16_vector_measure(%atanhf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i, 0] : vector<4xf32>, view<6x[%packet_count]x4xf32>
+    scf.for %j = [%begin to %packet_width step %step] {
+      %lane = view.load %source[%i, %j] : view<[%packet_count]x4xbf16> -> bf16
+      %scalar_asinhf = scalar.asinhf<afn> %lane : bf16
+      %scalar_asinhf_wide = func.call @inverse_bf16_scalar_measure(%scalar_asinhf) : (bf16) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : bf16
+      %scalar_acoshf_wide = func.call @inverse_bf16_scalar_measure(%scalar_acoshf) : (bf16) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : bf16
+      %scalar_atanhf_wide = func.call @inverse_bf16_scalar_measure(%scalar_atanhf) : (bf16) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %i, %j] : f32, view<6x[%packet_count]x4xf32>
+    }
+  }
+  func.return
+}
+
+func.def @inverse_bf16_inputs(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %inputs = buffer.view %input[%origin] : buffer -> view<16xi16>
+  %positive_zero_input = scalar.constant 0 : i16
+  %negative_zero_input = scalar.constant -32768 : i16
+  %min_subnormal = scalar.constant 1 : i16
+  %max_subnormal = scalar.constant 127 : i16
+  %min_normal = scalar.constant 128 : i16
+  %before_half = scalar.constant 16127 : i16
+  %half = scalar.constant 16128 : i16
+  %after_half = scalar.constant 16129 : i16
+  %before_one = scalar.constant 16255 : i16
+  %positive_domain_endpoint = scalar.constant 16256 : i16
+  %after_one = scalar.constant 16257 : i16
+  %negative_domain_endpoint = scalar.constant -16512 : i16
+  %negative_after_one = scalar.constant -16511 : i16
+  %max_finite = scalar.constant 32639 : i16
+  %infinity_or_nan = scalar.constant 32640 : i16
+  %nan = scalar.constant 32704 : i16
+  %values = vector.from_elements %positive_zero_input, %negative_zero_input, %min_subnormal, %max_subnormal, %min_normal, %before_half, %half, %after_half, %before_one, %positive_domain_endpoint, %after_one, %negative_domain_endpoint, %negative_after_one, %max_finite, %infinity_or_nan, %nan : vector<16xi16>
+  vector.store %values, %inputs[0] : vector<16xi16>, view<16xi16>
+  func.return
+}
+
+check.scenario @inverse_bf16_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(4) : index
+    %input = check.generate.fill value(0) : tensor<16xi16>
+    check.generate<@inverse_bf16_inputs>(%input) : (tensor<16xi16>) -> ()
+    %output = check.generate.fill value(0.0) : tensor<6x16xf32>
+    check.compare<@inverse_bf16_observations>(%packet_count, %input, %output) : (index, tensor<16xi16>, tensor<6x16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x16xf32>
+    }
+  }
+  check.return
+}

@@ -23,6 +23,8 @@ loom_cc_library(
     "approximate_f32.h"
     "evaluation.c"
     "evaluation.h"
+    "inverse_hyperbolic.c"
+    "inverse_hyperbolic.h"
     "legalize.c"
     "patterns.c"
     "patterns.h"

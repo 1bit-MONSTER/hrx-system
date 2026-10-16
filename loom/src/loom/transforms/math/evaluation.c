@@ -371,6 +371,31 @@ iree_status_t loom_math_evaluation_initialize(
       }
       return iree_ok_status();
 
+    case LOOM_TARGET_MATH_EVALUATION_WIDENED: {
+      out_evaluation->lane_ops =
+          query->lane_domain == LOOM_TARGET_MATH_LANE_DOMAIN_SCALAR
+              ? &kScalarLaneOps
+              : &kVectorLaneOps;
+      out_evaluation->value_type = loom_math_evaluation_type_with_element(
+          source_result_type, decision->evaluation.accumulator_element_type);
+      loom_value_id_t input = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_math_evaluation_build_cast(
+          &rewriter->builder, decision->evaluation.conversion.input_flags,
+          operands[0], source_result_type, out_evaluation->value_type,
+          op->location, &input));
+      out_evaluation->input = loom_math_evaluation_value_from_id(input);
+      if (op->operand_count >= 2) {
+        loom_value_id_t secondary = LOOM_VALUE_ID_INVALID;
+        IREE_RETURN_IF_ERROR(loom_math_evaluation_build_cast(
+            &rewriter->builder, decision->evaluation.conversion.input_flags,
+            operands[1], source_result_type, out_evaluation->value_type,
+            op->location, &secondary));
+        out_evaluation->secondary_input =
+            loom_math_evaluation_value_from_id(secondary);
+      }
+      return iree_ok_status();
+    }
+
     case LOOM_TARGET_MATH_EVALUATION_GROUPED_PRODUCT: {
       const loom_target_math_evaluation_t* descriptor = &decision->evaluation;
       IREE_ASSERT(descriptor->product_element_type == LOOM_SCALAR_TYPE_F16 ||
@@ -449,6 +474,13 @@ iree_status_t loom_math_evaluation_export(
   if (evaluation->descriptor.kind == LOOM_TARGET_MATH_EVALUATION_SOURCE) {
     *out_value = value->accumulator;
     return iree_ok_status();
+  }
+  if (evaluation->descriptor.kind == LOOM_TARGET_MATH_EVALUATION_WIDENED) {
+    return loom_math_evaluation_build_cast(
+        &evaluation->rewriter->builder,
+        evaluation->descriptor.conversion.result_flags, value->accumulator,
+        evaluation->value_type, evaluation->source_result_type,
+        evaluation->location, out_value);
   }
 
   loom_builder_t* builder = &evaluation->rewriter->builder;

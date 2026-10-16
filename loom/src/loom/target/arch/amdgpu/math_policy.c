@@ -215,6 +215,13 @@ static void loom_amdgpu_math_policy_query(
     return;
   }
 
+  if (query->math_op == LOOM_TARGET_MATH_OP_ASINHF ||
+      query->math_op == LOOM_TARGET_MATH_OP_ACOSHF ||
+      query->math_op == LOOM_TARGET_MATH_OP_ATANHF) {
+    *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
+    return;
+  }
+
   if (query->element_type != LOOM_SCALAR_TYPE_F32) {
     *out_decision = loom_amdgpu_math_reject(IREE_SV("math.element.f32"));
     return;
@@ -329,6 +336,9 @@ static void loom_amdgpu_math_policy_query(
       return;
     case LOOM_TARGET_MATH_OP_SQRTF:
     case LOOM_TARGET_MATH_OP_RSQRTF:
+    case LOOM_TARGET_MATH_OP_ASINHF:
+    case LOOM_TARGET_MATH_OP_ACOSHF:
+    case LOOM_TARGET_MATH_OP_ATANHF:
     case LOOM_TARGET_MATH_OP_UNKNOWN:
       break;
   }

@@ -187,6 +187,7 @@ loom_check_test_suite(
         "test/effects.loom-test",
         "test/emission.loom-test",
         "test/imports.loom-test",
+        "test/inverse_hyperbolic.loom-test",
         "test/math_contraction.loom-test",
         "test/math_policy.loom-test",
         "test/native_references.loom-test",

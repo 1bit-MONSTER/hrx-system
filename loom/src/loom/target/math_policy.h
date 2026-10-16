@@ -61,6 +61,9 @@ typedef enum loom_target_math_op_e {
   LOOM_TARGET_MATH_OP_SQRTF = 25,
   LOOM_TARGET_MATH_OP_RSQRTF = 26,
   LOOM_TARGET_MATH_OP_EXP2F = 27,
+  LOOM_TARGET_MATH_OP_ASINHF = 28,
+  LOOM_TARGET_MATH_OP_ACOSHF = 29,
+  LOOM_TARGET_MATH_OP_ATANHF = 30,
 } loom_target_math_op_t;
 
 typedef enum loom_target_math_lane_domain_e {
@@ -122,6 +125,7 @@ typedef enum loom_target_math_recipe_e {
   LOOM_TARGET_MATH_RECIPE_APPROXIMATE_EXP2_F32 = 18,
   LOOM_TARGET_MATH_RECIPE_APPROXIMATE_SIN_TURNS_F32 = 19,
   LOOM_TARGET_MATH_RECIPE_APPROXIMATE_COS_TURNS_F32 = 20,
+  LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32 = 21,
 } loom_target_math_recipe_t;
 
 // Representation used to evaluate a target-neutral math recipe.
@@ -131,6 +135,9 @@ typedef enum loom_target_math_evaluation_kind_e {
   // Evaluate one vector packet with narrow grouped products accumulated into
   // wider lanes. Products use vector.dot2f's two-input grouping.
   LOOM_TARGET_MATH_EVALUATION_GROUPED_PRODUCT = 1,
+  // Preserve scalar/vector shape while evaluating in wider element lanes.
+  // Operands are extended once and the result is rounded once on export.
+  LOOM_TARGET_MATH_EVALUATION_WIDENED = 2,
 } loom_target_math_evaluation_kind_t;
 
 // Subnormal permissions applied at the representation boundaries of a
@@ -279,6 +286,13 @@ iree_string_view_t loom_target_math_lane_domain_name(
 // Returns the assembly spelling for |recipe| used in diagnostics.
 iree_string_view_t loom_target_math_recipe_name(
     loom_target_math_recipe_t recipe);
+
+// Selects the inverse-hyperbolic family for a target with F32 logarithm,
+// square-root, arithmetic, and narrow-format conversion contracts. The caller
+// has classified |query| as asinhf, acoshf, or atanhf. Exact source semantics
+// and F64 evaluation require distinct implementations and are rejected here.
+loom_target_math_policy_decision_t loom_target_math_inverse_hyperbolic_decision(
+    const loom_target_math_query_t* query);
 
 // Creates a borrowed target-math pass capability.
 loom_target_math_pass_capability_t loom_target_math_pass_capability_make(

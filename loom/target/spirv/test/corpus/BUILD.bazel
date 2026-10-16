@@ -8,6 +8,7 @@ load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_corpus_build",
     "loom_scenario_test",
+    "loom_test",
 )
 load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load(
@@ -73,6 +74,8 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/float/exponential.loom",
     "numeric/float/extrema.loom",
     "numeric/float/half_extrema.loom",
+    "numeric/float/inverse_hyperbolic.loom",
+    "numeric/float/inverse_hyperbolic_narrow.loom",
     "numeric/float/logarithm.loom",
     "numeric/float/rounding.loom",
     "numeric/float/roots.loom",
@@ -655,4 +658,17 @@ loom_scenario_test(
 test_suite(
     name = "execution",
     tests = [":scenario_execution"],
+)
+
+# Exhaustive encoding enumeration is opt-in; bounded witnesses stay in the corpus.
+loom_test(
+    name = "inverse_hyperbolic_stress",
+    srcs = ["//loom/src/loom/test/stress/numeric:inverse_hyperbolic.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = ["//loom/src/loom/test/corpus/numeric:inverse_hyperbolic_narrow"],
 )

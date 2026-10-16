@@ -410,4 +410,55 @@ loom_corpus_build(
     "VM has no kernel artifact format."
 )
 
+loom_corpus_test(
+  NAME
+    "execution"
+  PROFILE
+    "vm_reference"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  SOURCES
+    "numeric/float/inverse_hyperbolic.loom"
+    "numeric/float/inverse_hyperbolic_narrow.loom"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+  REQUIRES
+    LOOM_TARGET_ARCH_VM
+)
+
+loom_test_module(
+  NAME
+    inverse_hyperbolic_stress_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/stress/numeric/inverse_hyperbolic.loom"
+  LIBRARIES
+    "loom::test::corpus::numeric::inverse_hyperbolic_narrow"
+)
+
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    inverse_hyperbolic_stress_execute_vm_reference_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::inverse_hyperbolic_stress_module"
+  LABELS
+    "manual"
+    "stress"
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

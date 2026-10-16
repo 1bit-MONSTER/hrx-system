@@ -1,0 +1,58 @@
+// Exhaustive encodings use the same observation functions as bounded correctness.
+// Functions are linked from the numeric corpus; its scenarios are not selected.
+
+func.decl @inverse_f8e4m3_observations(%packet_count: index, %input: buffer, %output: buffer)
+
+check.scenario @inverse_f8e4m3_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(64) : index
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %output = check.generate.fill value(0.0) : tensor<6x256xf32>
+    check.compare<@inverse_f8e4m3_observations>(%packet_count, %input, %output) : (index, tensor<256xi8>, tensor<6x256xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x256xf32>
+    }
+  }
+  check.return
+}
+
+func.decl @inverse_f8e5m2_observations(%packet_count: index, %input: buffer, %output: buffer)
+
+check.scenario @inverse_f8e5m2_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(64) : index
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %output = check.generate.fill value(0.0) : tensor<6x256xf32>
+    check.compare<@inverse_f8e5m2_observations>(%packet_count, %input, %output) : (index, tensor<256xi8>, tensor<6x256xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x256xf32>
+    }
+  }
+  check.return
+}
+
+func.decl @inverse_f16_observations(%packet_count: index, %input: buffer, %output: buffer)
+
+check.scenario @inverse_f16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(16384) : index
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %output = check.generate.fill value(0.0) : tensor<6x65536xf32>
+    check.compare<@inverse_f16_observations>(%packet_count, %input, %output) : (index, tensor<65536xi16>, tensor<6x65536xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x65536xf32>
+    }
+  }
+  check.return
+}
+
+func.decl @inverse_bf16_observations(%packet_count: index, %input: buffer, %output: buffer)
+
+check.scenario @inverse_bf16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet_count = check.literal value(16384) : index
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %output = check.generate.fill value(0.0) : tensor<6x65536xf32>
+    check.compare<@inverse_bf16_observations>(%packet_count, %input, %output) : (index, tensor<65536xi16>, tensor<6x65536xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x65536xf32>
+    }
+  }
+  check.return
+}

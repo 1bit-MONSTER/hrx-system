@@ -116,6 +116,12 @@ iree_string_view_t loom_target_math_op_name(loom_target_math_op_t math_op) {
       return IREE_SV("rsqrtf");
     case LOOM_TARGET_MATH_OP_EXP2F:
       return IREE_SV("exp2f");
+    case LOOM_TARGET_MATH_OP_ASINHF:
+      return IREE_SV("asinhf");
+    case LOOM_TARGET_MATH_OP_ACOSHF:
+      return IREE_SV("acoshf");
+    case LOOM_TARGET_MATH_OP_ATANHF:
+      return IREE_SV("atanhf");
     case LOOM_TARGET_MATH_OP_UNKNOWN:
       return IREE_SV("unknown");
   }
@@ -178,10 +184,43 @@ iree_string_view_t loom_target_math_recipe_name(
       return IREE_SV("approximate-sin-turns-f32");
     case LOOM_TARGET_MATH_RECIPE_APPROXIMATE_COS_TURNS_F32:
       return IREE_SV("approximate-cos-turns-f32");
+    case LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32:
+      return IREE_SV("inverse-hyperbolic-f32");
     case LOOM_TARGET_MATH_RECIPE_UNKNOWN:
       return IREE_SV("unknown");
   }
   return IREE_SV("unknown");
+}
+
+loom_target_math_policy_decision_t loom_target_math_inverse_hyperbolic_decision(
+    const loom_target_math_query_t* query) {
+  if (!loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_FLOAT_LE16 | LOOM_SCALAR_TYPE_SET_F32,
+          query->element_type)) {
+    return (loom_target_math_policy_decision_t){
+        .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
+        .constraint_key = IREE_SVL("math.inverse_hyperbolic.f32_evaluation"),
+    };
+  }
+  if (!iree_all_bits_set(query->fastmath_flags,
+                         LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
+    return (loom_target_math_policy_decision_t){
+        .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
+        .constraint_key = IREE_SVL("math.inverse_hyperbolic.afn"),
+    };
+  }
+  return (loom_target_math_policy_decision_t){
+      .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
+      .recipe = LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32,
+      .evaluation =
+          {
+              .kind = query->element_type == LOOM_SCALAR_TYPE_F32
+                          ? LOOM_TARGET_MATH_EVALUATION_SOURCE
+                          : LOOM_TARGET_MATH_EVALUATION_WIDENED,
+              .accumulator_element_type = LOOM_SCALAR_TYPE_F32,
+          },
+      .constraint_key = IREE_SVL("math.recipe.inverse_hyperbolic_f32"),
+  };
 }
 
 loom_target_math_pass_capability_t loom_target_math_pass_capability_make(
