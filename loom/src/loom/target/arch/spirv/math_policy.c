@@ -6,127 +6,272 @@
 
 #include "loom/target/arch/spirv/math_policy.h"
 
-static loom_target_math_policy_decision_t loom_spirv_math_keep(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_KEEP,
-      .constraint_key = constraint_key,
-  };
-}
+#include <stddef.h>
 
-static loom_target_math_policy_decision_t loom_spirv_math_reject(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-      .constraint_key = constraint_key,
-  };
-}
+#define LOOM_SPIRV_MATH_CONSTRAINTS(_)                                       \
+  _(ELEMENT_F16_F32_F64, element_f16_f32_f64, "math.element.f16_f32_f64")    \
+  _(INVERSE_HYPERBOLIC_AFN, inverse_hyperbolic_afn,                          \
+    "math.inverse_hyperbolic.afn")                                           \
+  _(INVERSE_HYPERBOLIC_F32_EVALUATION, inverse_hyperbolic_f32_evaluation,    \
+    "math.inverse_hyperbolic.f32_evaluation")                                \
+  _(OP_NATIVE_ARITHMETIC, op_native_arithmetic, "math.op.native_arithmetic") \
+  _(RECIPE_INVERSE_HYPERBOLIC_F32, recipe_inverse_hyperbolic_f32,            \
+    "math.recipe.inverse_hyperbolic_f32")                                    \
+  _(RECIPE_WIDEN_F32_ROUND, recipe_widen_f32_round,                          \
+    "math.recipe.widen_f32_round")                                           \
+  _(ROOT_AFN, root_afn, "math.root.afn")                                     \
+  _(ROOT_AFN_FLOAT, root_afn_float, "math.root.afn_float")                   \
+  _(ROOT_F16_F32_F64, root_f16_f32_f64, "math.root.f16_f32_f64")             \
+  _(ROUNDING, rounding, "math.rounding")                                     \
+  _(TRANSCENDENTAL_AFN, transcendental_afn, "math.transcendental.afn")       \
+  _(TRANSCENDENTAL_AFN_F32, transcendental_afn_f32,                          \
+    "math.transcendental.afn_f32")                                           \
+  _(TRANSCENDENTAL_F32, transcendental_f32, "math.transcendental.f32")
 
-static bool loom_spirv_math_op_is_native_arithmetic(
-    loom_target_math_op_t math_op) {
-  return math_op == LOOM_TARGET_MATH_OP_ADDF ||
-         math_op == LOOM_TARGET_MATH_OP_SUBF ||
-         math_op == LOOM_TARGET_MATH_OP_MULF;
-}
+enum loom_spirv_math_constraint_e {
+  LOOM_SPIRV_MATH_CONSTRAINT_NONE = 0,
+#define LOOM_SPIRV_MATH_CONSTRAINT_ENUM(name, field, value) \
+  LOOM_SPIRV_MATH_CONSTRAINT_##name,
+  LOOM_SPIRV_MATH_CONSTRAINTS(LOOM_SPIRV_MATH_CONSTRAINT_ENUM)
+#undef LOOM_SPIRV_MATH_CONSTRAINT_ENUM
+      LOOM_SPIRV_MATH_CONSTRAINT_COUNT_,
+};
 
-static bool loom_spirv_math_op_is_approximate_transcendental(
-    loom_target_math_op_t math_op) {
-  return math_op == LOOM_TARGET_MATH_OP_EXP2F ||
-         math_op == LOOM_TARGET_MATH_OP_EXPF ||
-         math_op == LOOM_TARGET_MATH_OP_LOGF ||
-         math_op == LOOM_TARGET_MATH_OP_LOG2F;
-}
+typedef struct loom_spirv_math_constraint_strings_t {
+#define LOOM_SPIRV_MATH_CONSTRAINT_FIELD(name, field, value) \
+  char field[sizeof(value)];
+  LOOM_SPIRV_MATH_CONSTRAINTS(LOOM_SPIRV_MATH_CONSTRAINT_FIELD)
+#undef LOOM_SPIRV_MATH_CONSTRAINT_FIELD
+} loom_spirv_math_constraint_strings_t;
 
-static bool loom_spirv_math_op_is_approximate_root(
-    loom_target_math_op_t math_op) {
-  return math_op == LOOM_TARGET_MATH_OP_SQRTF ||
-         math_op == LOOM_TARGET_MATH_OP_RSQRTF;
-}
+static const loom_spirv_math_constraint_strings_t kSpirvMathConstraintStrings =
+    {
+#define LOOM_SPIRV_MATH_CONSTRAINT_VALUE(name, field, value) .field = value,
+        LOOM_SPIRV_MATH_CONSTRAINTS(LOOM_SPIRV_MATH_CONSTRAINT_VALUE)
+#undef LOOM_SPIRV_MATH_CONSTRAINT_VALUE
+};
 
-static bool loom_spirv_math_element_type_is_native_arithmetic(
-    loom_scalar_type_t element_type) {
-  return element_type == LOOM_SCALAR_TYPE_F16 ||
-         element_type == LOOM_SCALAR_TYPE_F32 ||
-         element_type == LOOM_SCALAR_TYPE_F64;
-}
+static const loom_string_ref_t
+    kSpirvMathConstraints[LOOM_SPIRV_MATH_CONSTRAINT_COUNT_ - 1] = {
+#define LOOM_SPIRV_MATH_CONSTRAINT_REF(name, field, value)      \
+  [LOOM_SPIRV_MATH_CONSTRAINT_##name - 1] = LOOM_STRING_REF(    \
+      0, offsetof(loom_spirv_math_constraint_strings_t, field), \
+      sizeof(value) - 1),
+        LOOM_SPIRV_MATH_CONSTRAINTS(LOOM_SPIRV_MATH_CONSTRAINT_REF)
+#undef LOOM_SPIRV_MATH_CONSTRAINT_REF
+};
 
-static void loom_spirv_math_policy_query(
-    const loom_target_math_policy_t* policy,
-    const loom_target_math_query_t* query,
-    loom_target_math_policy_decision_t* out_decision) {
-  // Contracts implement every source format with native IEEE instructions
-  // guarded by integer edge handling, or with integer-carrier rounding.
-  switch (query->math_op) {
-    case LOOM_TARGET_MATH_OP_ASINHF:
-    case LOOM_TARGET_MATH_OP_ACOSHF:
-    case LOOM_TARGET_MATH_OP_ATANHF:
-      *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
-      return;
-    case LOOM_TARGET_MATH_OP_CEILF:
-    case LOOM_TARGET_MATH_OP_FLOORF:
-    case LOOM_TARGET_MATH_OP_ROUNDF:
-    case LOOM_TARGET_MATH_OP_ROUNDEVENF:
-    case LOOM_TARGET_MATH_OP_TRUNCF:
-      *out_decision = loom_spirv_math_keep(IREE_SV("math.rounding"));
-      return;
-    default:
-      break;
+#undef LOOM_SPIRV_MATH_CONSTRAINTS
+
+enum loom_spirv_math_evaluation_e {
+  LOOM_SPIRV_MATH_EVALUATION_NONE = 0,
+  LOOM_SPIRV_MATH_EVALUATION_SOURCE_F32 = 1,
+  LOOM_SPIRV_MATH_EVALUATION_WIDENED_F32 = 2,
+};
+
+static const loom_target_math_evaluation_t kSpirvMathEvaluations[] = {
+    [LOOM_SPIRV_MATH_EVALUATION_SOURCE_F32 - 1] =
+        {
+            .kind = LOOM_TARGET_MATH_EVALUATION_SOURCE,
+            .accumulator_element_type = LOOM_SCALAR_TYPE_F32,
+        },
+    [LOOM_SPIRV_MATH_EVALUATION_WIDENED_F32 - 1] =
+        {
+            .kind = LOOM_TARGET_MATH_EVALUATION_WIDENED,
+            .accumulator_element_type = LOOM_SCALAR_TYPE_F32,
+        },
+};
+
+#define LOOM_SPIRV_MATH_DIRECT_RULE(element_types_, required_fastmath_flags_, \
+                                    recipe_, evaluation_, constraint_,        \
+                                    permission_constraint_)                   \
+  LOOM_TARGET_MATH_POLICY_DIRECT_RULE(                                        \
+      element_types_, LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,                   \
+      required_fastmath_flags_, recipe_, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, evaluation_, constraint_,          \
+      permission_constraint_)
+
+static const loom_target_math_policy_direct_rule_t
+    kSpirvMathDirectRules[LOOM_TARGET_MATH_OP_COUNT] = {
+        [LOOM_TARGET_MATH_OP_ADDF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+                LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_OP_NATIVE_ARITHMETIC,
+            LOOM_SPIRV_MATH_CONSTRAINT_NONE),
+        [LOOM_TARGET_MATH_OP_SUBF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+                LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_OP_NATIVE_ARITHMETIC,
+            LOOM_SPIRV_MATH_CONSTRAINT_NONE),
+        [LOOM_TARGET_MATH_OP_MULF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+                LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_OP_NATIVE_ARITHMETIC,
+            LOOM_SPIRV_MATH_CONSTRAINT_NONE),
+        [LOOM_TARGET_MATH_OP_EXP2F] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN_F32,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN),
+        [LOOM_TARGET_MATH_OP_EXPF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN_F32,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN),
+        [LOOM_TARGET_MATH_OP_LOGF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN_F32,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN),
+        [LOOM_TARGET_MATH_OP_LOG2F] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN_F32,
+            LOOM_SPIRV_MATH_CONSTRAINT_TRANSCENDENTAL_AFN),
+        [LOOM_TARGET_MATH_OP_SQRTF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+                LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_ROOT_AFN_FLOAT,
+            LOOM_SPIRV_MATH_CONSTRAINT_ROOT_AFN),
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_SPIRV_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+                LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_SPIRV_MATH_EVALUATION_NONE,
+            LOOM_SPIRV_MATH_CONSTRAINT_ROOT_AFN_FLOAT,
+            LOOM_SPIRV_MATH_CONSTRAINT_ROOT_AFN),
+#define LOOM_SPIRV_MATH_ROUNDING_RULE(op_)                              \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_SPIRV_MATH_DIRECT_RULE(            \
+      LOOM_SCALAR_TYPE_SET_FLOAT, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,  \
+      LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_SPIRV_MATH_EVALUATION_NONE, \
+      LOOM_SPIRV_MATH_CONSTRAINT_ROUNDING, LOOM_SPIRV_MATH_CONSTRAINT_NONE)
+        LOOM_SPIRV_MATH_ROUNDING_RULE(CEILF),
+        LOOM_SPIRV_MATH_ROUNDING_RULE(FLOORF),
+        LOOM_SPIRV_MATH_ROUNDING_RULE(ROUNDF),
+        LOOM_SPIRV_MATH_ROUNDING_RULE(ROUNDEVENF),
+        LOOM_SPIRV_MATH_ROUNDING_RULE(TRUNCF),
+#undef LOOM_SPIRV_MATH_ROUNDING_RULE
+#define LOOM_SPIRV_MATH_INVERSE_RULE(op_)                           \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_SPIRV_MATH_DIRECT_RULE(        \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN, \
+      LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32,               \
+      LOOM_SPIRV_MATH_EVALUATION_SOURCE_F32,                        \
+      LOOM_SPIRV_MATH_CONSTRAINT_RECIPE_INVERSE_HYPERBOLIC_F32,     \
+      LOOM_SPIRV_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_AFN)
+        LOOM_SPIRV_MATH_INVERSE_RULE(ASINHF),
+        LOOM_SPIRV_MATH_INVERSE_RULE(ACOSHF),
+        LOOM_SPIRV_MATH_INVERSE_RULE(ATANHF),
+#undef LOOM_SPIRV_MATH_INVERSE_RULE
+};
+
+#undef LOOM_SPIRV_MATH_DIRECT_RULE
+
+#define LOOM_SPIRV_MATH_MATCH(element_types_, required_fastmath_flags_) \
+  {                                                                     \
+      .element_types = (element_types_),                                \
+      .lane_domains = LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,             \
+      .shape = LOOM_TARGET_MATH_POLICY_SHAPE_ANY,                       \
+      .required_fastmath_flags = (required_fastmath_flags_),            \
   }
-  if (loom_spirv_math_op_is_approximate_transcendental(query->math_op)) {
-    if (query->element_type != LOOM_SCALAR_TYPE_F32) {
-      *out_decision =
-          loom_spirv_math_reject(IREE_SV("math.transcendental.f32"));
-      return;
-    }
-    if (!iree_all_bits_set(query->fastmath_flags,
-                           LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
-      *out_decision =
-          loom_spirv_math_reject(IREE_SV("math.transcendental.afn"));
-      return;
-    }
-    *out_decision =
-        loom_spirv_math_keep(IREE_SV("math.transcendental.afn_f32"));
-    return;
-  }
-  if (loom_spirv_math_op_is_approximate_root(query->math_op)) {
-    if (query->element_type != LOOM_SCALAR_TYPE_F16 &&
-        query->element_type != LOOM_SCALAR_TYPE_F32 &&
-        query->element_type != LOOM_SCALAR_TYPE_F64) {
-      *out_decision = loom_spirv_math_reject(IREE_SV("math.root.f16_f32_f64"));
-      return;
-    }
-    if (!iree_all_bits_set(query->fastmath_flags,
-                           LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
-      *out_decision = loom_spirv_math_reject(IREE_SV("math.root.afn"));
-      return;
-    }
-    *out_decision = loom_spirv_math_keep(IREE_SV("math.root.afn_float"));
-    return;
-  }
-  if (!loom_spirv_math_op_is_native_arithmetic(query->math_op)) {
-    *out_decision =
-        loom_spirv_math_reject(IREE_SV("math.op.native_arithmetic"));
-    return;
-  }
-  if (query->element_type == LOOM_SCALAR_TYPE_BF16) {
-    *out_decision = (loom_target_math_policy_decision_t){
-        .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
-        .recipe = LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND,
-        .constraint_key = IREE_SVL("math.recipe.widen_f32_round"),
-    };
-    return;
-  }
-  if (!loom_spirv_math_element_type_is_native_arithmetic(query->element_type)) {
-    *out_decision = loom_spirv_math_reject(IREE_SV("math.element.f16_f32_f64"));
-    return;
+
+enum loom_spirv_math_rule_e {
+  LOOM_SPIRV_MATH_RULE_ARITHMETIC_BF16 = 0,
+  LOOM_SPIRV_MATH_RULE_INVERSE_NARROW,
+  LOOM_SPIRV_MATH_RULE_COUNT_,
+};
+
+static const loom_target_math_policy_rule_t
+    kSpirvMathRules[LOOM_SPIRV_MATH_RULE_COUNT_] = {
+        [LOOM_SPIRV_MATH_RULE_ARITHMETIC_BF16] =
+            {
+                .match =
+                    LOOM_SPIRV_MATH_MATCH(LOOM_SCALAR_TYPE_SET_BF16,
+                                          LOOM_TARGET_MATH_FASTMATH_FLAG_NONE),
+                .recipe = LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND,
+                .decision_constraint =
+                    LOOM_SPIRV_MATH_CONSTRAINT_RECIPE_WIDEN_F32_ROUND,
+            },
+        [LOOM_SPIRV_MATH_RULE_INVERSE_NARROW] =
+            {
+                .match =
+                    LOOM_SPIRV_MATH_MATCH(LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+                                          LOOM_TARGET_MATH_FASTMATH_FLAG_AFN),
+                .recipe = LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32,
+                .evaluation = LOOM_SPIRV_MATH_EVALUATION_WIDENED_F32,
+                .decision_constraint =
+                    LOOM_SPIRV_MATH_CONSTRAINT_RECIPE_INVERSE_HYPERBOLIC_F32,
+                .permission_constraint =
+                    LOOM_SPIRV_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_AFN,
+            },
+};
+
+#undef LOOM_SPIRV_MATH_MATCH
+
+#define LOOM_SPIRV_MATH_SPAN(start_, count_, fallback_) \
+  {                                                     \
+      .rule_start = (start_),                           \
+      .rule_count = (count_),                           \
+      .fallback_constraint = (fallback_),               \
   }
 
-  *out_decision = loom_spirv_math_keep(IREE_SV("math.op.native_arithmetic"));
-}
+static const loom_target_math_policy_rule_span_t
+    kSpirvMathOperationSpans[LOOM_TARGET_MATH_OP_COUNT] = {
+        [LOOM_TARGET_MATH_OP_ADDF] = LOOM_SPIRV_MATH_SPAN(
+            LOOM_SPIRV_MATH_RULE_ARITHMETIC_BF16, 1,
+            LOOM_SPIRV_MATH_CONSTRAINT_ELEMENT_F16_F32_F64),
+        [LOOM_TARGET_MATH_OP_SUBF] = LOOM_SPIRV_MATH_SPAN(
+            LOOM_SPIRV_MATH_RULE_ARITHMETIC_BF16, 1,
+            LOOM_SPIRV_MATH_CONSTRAINT_ELEMENT_F16_F32_F64),
+        [LOOM_TARGET_MATH_OP_MULF] = LOOM_SPIRV_MATH_SPAN(
+            LOOM_SPIRV_MATH_RULE_ARITHMETIC_BF16, 1,
+            LOOM_SPIRV_MATH_CONSTRAINT_ELEMENT_F16_F32_F64),
+#define LOOM_SPIRV_MATH_FALLBACK(op_, constraint_) \
+  [LOOM_TARGET_MATH_OP_##op_] =                    \
+      LOOM_SPIRV_MATH_SPAN(0, 0, LOOM_SPIRV_MATH_CONSTRAINT_##constraint_)
+        LOOM_SPIRV_MATH_FALLBACK(EXP2F, TRANSCENDENTAL_F32),
+        LOOM_SPIRV_MATH_FALLBACK(EXPF, TRANSCENDENTAL_F32),
+        LOOM_SPIRV_MATH_FALLBACK(LOGF, TRANSCENDENTAL_F32),
+        LOOM_SPIRV_MATH_FALLBACK(LOG2F, TRANSCENDENTAL_F32),
+        LOOM_SPIRV_MATH_FALLBACK(SQRTF, ROOT_F16_F32_F64),
+        LOOM_SPIRV_MATH_FALLBACK(RSQRTF, ROOT_F16_F32_F64),
+#undef LOOM_SPIRV_MATH_FALLBACK
+#define LOOM_SPIRV_MATH_INVERSE_SPAN(op_)             \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_SPIRV_MATH_SPAN( \
+      LOOM_SPIRV_MATH_RULE_INVERSE_NARROW, 1,         \
+      LOOM_SPIRV_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_F32_EVALUATION)
+        LOOM_SPIRV_MATH_INVERSE_SPAN(ASINHF),
+        LOOM_SPIRV_MATH_INVERSE_SPAN(ACOSHF),
+        LOOM_SPIRV_MATH_INVERSE_SPAN(ATANHF),
+#undef LOOM_SPIRV_MATH_INVERSE_SPAN
+};
+
+#undef LOOM_SPIRV_MATH_SPAN
+
+static const loom_target_math_policy_table_t kSpirvMathPolicyTable = {
+    .operation_spans = kSpirvMathOperationSpans,
+    .rules = kSpirvMathRules,
+    .default_constraint = LOOM_SPIRV_MATH_CONSTRAINT_OP_NATIVE_ARITHMETIC,
+    .constraints = kSpirvMathConstraints,
+    .constraint_strings =
+        {
+            .data = {(const char*)&kSpirvMathConstraintStrings},
+            .data_length = {sizeof(kSpirvMathConstraintStrings)},
+        },
+    .evaluations = kSpirvMathEvaluations,
+};
 
 static const loom_target_math_policy_t kSpirvMathPolicy = {
     .name = IREE_SVL("spirv-math"),
-    .query = loom_spirv_math_policy_query,
+    .direct_rules = kSpirvMathDirectRules,
+    .table = &kSpirvMathPolicyTable,
 };
 
 static const loom_target_math_policy_registry_entry_t

@@ -6,88 +6,122 @@
 
 #include "loom/target/arch/wasm/math_policy.h"
 
-static loom_target_math_policy_decision_t loom_wasm_math_keep(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_KEEP,
-      .constraint_key = constraint_key,
-  };
-}
+#include <stddef.h>
 
-static loom_target_math_policy_decision_t loom_wasm_math_reject(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-      .constraint_key = constraint_key,
-  };
-}
+#define LOOM_WASM_MATH_CONSTRAINTS(_)                   \
+  _(ELEMENT_F32, element_f32, "math.element.f32")       \
+  _(OP_NATIVE_F32, op_native_f32, "math.op.native_f32") \
+  _(OP_SUPPORTED, op_supported, "math.op.supported")    \
+  _(RECIPE_RSQRT_SQRT_DIV, recipe_rsqrt_sqrt_div, "math.recipe.rsqrt_sqrt_div")
 
-static loom_target_math_policy_decision_t loom_wasm_math_rewrite(
-    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
-      .recipe = recipe,
-      .constraint_key = constraint_key,
-  };
-}
+enum loom_wasm_math_constraint_e {
+  LOOM_WASM_MATH_CONSTRAINT_NONE = 0,
+#define LOOM_WASM_MATH_CONSTRAINT_ENUM(name, field, value) \
+  LOOM_WASM_MATH_CONSTRAINT_##name,
+  LOOM_WASM_MATH_CONSTRAINTS(LOOM_WASM_MATH_CONSTRAINT_ENUM)
+#undef LOOM_WASM_MATH_CONSTRAINT_ENUM
+      LOOM_WASM_MATH_CONSTRAINT_COUNT_,
+};
 
-static bool loom_wasm_math_op_is_native_arithmetic(
-    loom_target_math_op_t math_op) {
-  return math_op == LOOM_TARGET_MATH_OP_ADDF ||
-         math_op == LOOM_TARGET_MATH_OP_SUBF ||
-         math_op == LOOM_TARGET_MATH_OP_MULF;
-}
+typedef struct loom_wasm_math_constraint_strings_t {
+#define LOOM_WASM_MATH_CONSTRAINT_FIELD(name, field, value) \
+  char field[sizeof(value)];
+  LOOM_WASM_MATH_CONSTRAINTS(LOOM_WASM_MATH_CONSTRAINT_FIELD)
+#undef LOOM_WASM_MATH_CONSTRAINT_FIELD
+} loom_wasm_math_constraint_strings_t;
 
-static bool loom_wasm_math_op_is_native_rounding(
-    loom_target_math_op_t math_op) {
-  return math_op == LOOM_TARGET_MATH_OP_CEILF ||
-         math_op == LOOM_TARGET_MATH_OP_FLOORF ||
-         math_op == LOOM_TARGET_MATH_OP_ROUNDEVENF ||
-         math_op == LOOM_TARGET_MATH_OP_TRUNCF;
-}
+static const loom_wasm_math_constraint_strings_t kWasmMathConstraintStrings = {
+#define LOOM_WASM_MATH_CONSTRAINT_VALUE(name, field, value) .field = value,
+    LOOM_WASM_MATH_CONSTRAINTS(LOOM_WASM_MATH_CONSTRAINT_VALUE)
+#undef LOOM_WASM_MATH_CONSTRAINT_VALUE
+};
 
-static bool loom_wasm_math_lane_domain_is_supported(
-    loom_target_math_lane_domain_t lane_domain) {
-  return lane_domain == LOOM_TARGET_MATH_LANE_DOMAIN_SCALAR ||
-         lane_domain == LOOM_TARGET_MATH_LANE_DOMAIN_VECTOR;
-}
+static const loom_string_ref_t
+    kWasmMathConstraints[LOOM_WASM_MATH_CONSTRAINT_COUNT_ - 1] = {
+#define LOOM_WASM_MATH_CONSTRAINT_REF(name, field, value)                      \
+  [LOOM_WASM_MATH_CONSTRAINT_##name - 1] =                                     \
+      LOOM_STRING_REF(0, offsetof(loom_wasm_math_constraint_strings_t, field), \
+                      sizeof(value) - 1),
+        LOOM_WASM_MATH_CONSTRAINTS(LOOM_WASM_MATH_CONSTRAINT_REF)
+#undef LOOM_WASM_MATH_CONSTRAINT_REF
+};
 
-static void loom_wasm_math_policy_query(
-    const loom_target_math_policy_t* policy,
-    const loom_target_math_query_t* query,
-    loom_target_math_policy_decision_t* out_decision) {
-  const bool is_native_arithmetic =
-      loom_wasm_math_op_is_native_arithmetic(query->math_op);
-  const bool is_native_rounding =
-      loom_wasm_math_op_is_native_rounding(query->math_op);
-  const bool is_root = query->math_op == LOOM_TARGET_MATH_OP_SQRTF ||
-                       query->math_op == LOOM_TARGET_MATH_OP_RSQRTF;
-  if (!is_native_arithmetic && !is_native_rounding && !is_root) {
-    *out_decision = loom_wasm_math_reject(IREE_SV("math.op.supported"));
-    return;
-  }
-  if (query->element_type != LOOM_SCALAR_TYPE_F32) {
-    *out_decision = loom_wasm_math_reject(IREE_SV("math.element.f32"));
-    return;
-  }
-  if (!loom_wasm_math_lane_domain_is_supported(query->lane_domain)) {
-    *out_decision = loom_wasm_math_reject(IREE_SV("math.lane.scalar_vector"));
-    return;
-  }
+#undef LOOM_WASM_MATH_CONSTRAINTS
 
-  if (query->math_op == LOOM_TARGET_MATH_OP_RSQRTF) {
-    *out_decision =
-        loom_wasm_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
-                               IREE_SV("math.recipe.rsqrt_sqrt_div"));
-    return;
-  }
+#define LOOM_WASM_MATH_DIRECT_RULE(element_types_, recipe_, constraint_) \
+  LOOM_TARGET_MATH_POLICY_DIRECT_RULE(                                   \
+      element_types_, LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,              \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, recipe_,                      \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,                               \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, 0, constraint_,               \
+      LOOM_WASM_MATH_CONSTRAINT_NONE)
 
-  *out_decision = loom_wasm_math_keep(IREE_SV("math.op.native_f32"));
-}
+static const loom_target_math_policy_direct_rule_t
+    kWasmMathDirectRules[LOOM_TARGET_MATH_OP_COUNT] = {
+        [LOOM_TARGET_MATH_OP_ADDF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_SUBF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_MULF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_CEILF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_FLOORF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_ROUNDEVENF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_TRUNCF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_SQRTF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_WASM_MATH_CONSTRAINT_OP_NATIVE_F32),
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_WASM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+            LOOM_WASM_MATH_CONSTRAINT_RECIPE_RSQRT_SQRT_DIV),
+};
+
+#undef LOOM_WASM_MATH_DIRECT_RULE
+
+#define LOOM_WASM_MATH_F32_SPAN \
+  {.fallback_constraint = LOOM_WASM_MATH_CONSTRAINT_ELEMENT_F32}
+
+static const loom_target_math_policy_rule_span_t
+    kWasmMathOperationSpans[LOOM_TARGET_MATH_OP_COUNT] = {
+        [LOOM_TARGET_MATH_OP_ADDF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_SUBF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_MULF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_CEILF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_FLOORF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_ROUNDEVENF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_TRUNCF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_SQRTF] = LOOM_WASM_MATH_F32_SPAN,
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_WASM_MATH_F32_SPAN,
+};
+
+#undef LOOM_WASM_MATH_F32_SPAN
+
+static const loom_target_math_policy_table_t kWasmMathPolicyTable = {
+    .operation_spans = kWasmMathOperationSpans,
+    .default_constraint = LOOM_WASM_MATH_CONSTRAINT_OP_SUPPORTED,
+    .constraints = kWasmMathConstraints,
+    .constraint_strings =
+        {
+            .data = {(const char*)&kWasmMathConstraintStrings},
+            .data_length = {sizeof(kWasmMathConstraintStrings)},
+        },
+};
 
 static const loom_target_math_policy_t kWasmMathPolicy = {
     .name = IREE_SVL("wasm-math"),
-    .query = loom_wasm_math_policy_query,
+    .direct_rules = kWasmMathDirectRules,
+    .table = &kWasmMathPolicyTable,
 };
 
 static const loom_target_math_policy_registry_entry_t kWasmMathPolicyEntries[] =

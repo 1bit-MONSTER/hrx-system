@@ -6,145 +6,281 @@
 
 #include "loom/target/arch/vm/math_policy.h"
 
-static void loom_vm_math_policy_query(
-    const loom_target_math_policy_t* policy,
-    const loom_target_math_query_t* query,
-    loom_target_math_policy_decision_t* out_decision) {
-  loom_target_math_recipe_t recipe = LOOM_TARGET_MATH_RECIPE_UNKNOWN;
-  switch (query->math_op) {
-    case LOOM_TARGET_MATH_OP_ASINHF:
-    case LOOM_TARGET_MATH_OP_ACOSHF:
-    case LOOM_TARGET_MATH_OP_ATANHF:
-      *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
-      return;
-    case LOOM_TARGET_MATH_OP_ADDF:
-    case LOOM_TARGET_MATH_OP_SUBF:
-    case LOOM_TARGET_MATH_OP_MULF:
-      if (query->element_type == LOOM_SCALAR_TYPE_F16 ||
-          query->element_type == LOOM_SCALAR_TYPE_BF16) {
-        *out_decision = (loom_target_math_policy_decision_t){
-            .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
-            .recipe = LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND,
-            .constraint_key = IREE_SVL("math.recipe.widen_f32_round"),
-        };
-        return;
-      }
-      break;
-    case LOOM_TARGET_MATH_OP_CEILF:
-    case LOOM_TARGET_MATH_OP_FLOORF:
-    case LOOM_TARGET_MATH_OP_ROUNDF:
-    case LOOM_TARGET_MATH_OP_ROUNDEVENF:
-    case LOOM_TARGET_MATH_OP_TRUNCF:
-    case LOOM_TARGET_MATH_OP_LOG2F:
-      break;
-    case LOOM_TARGET_MATH_OP_EXP2F:
-      if (query->element_type != LOOM_SCALAR_TYPE_F32 ||
-          !iree_all_bits_set(query->fastmath_flags,
-                             LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
-        *out_decision = (loom_target_math_policy_decision_t){
-            .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-            .constraint_key = IREE_SVL("math.exp2.afn_f32"),
-        };
-        return;
-      }
-      break;
-    case LOOM_TARGET_MATH_OP_SQRTF:
-    case LOOM_TARGET_MATH_OP_RSQRTF:
-      if (query->element_type != LOOM_SCALAR_TYPE_F32) {
-        *out_decision = (loom_target_math_policy_decision_t){
-            .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-            .constraint_key = IREE_SVL("math.root.f32"),
-        };
-        return;
-      }
-      break;
-    case LOOM_TARGET_MATH_OP_EXPF:
-      recipe = LOOM_TARGET_MATH_RECIPE_EXP_EXP2_F32;
-      break;
-    case LOOM_TARGET_MATH_OP_LOGF:
-      recipe = LOOM_TARGET_MATH_RECIPE_LOG_LOG2_F32;
-      break;
-    case LOOM_TARGET_MATH_OP_SINF:
-      recipe = LOOM_TARGET_MATH_RECIPE_SIN_TURNS_F32;
-      break;
-    case LOOM_TARGET_MATH_OP_COSF:
-      recipe = LOOM_TARGET_MATH_RECIPE_COS_TURNS_F32;
-      break;
-    case LOOM_TARGET_MATH_OP_SINTURNSF:
-    case LOOM_TARGET_MATH_OP_COSTURNSF:
-      if (query->element_type != LOOM_SCALAR_TYPE_F32) {
-        *out_decision = (loom_target_math_policy_decision_t){
-            .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-            .constraint_key = IREE_SVL("math.turns_trig.f32"),
-        };
-        return;
-      }
-      break;
-    default:
-      *out_decision = (loom_target_math_policy_decision_t){
-          .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-          .constraint_key = IREE_SVL("math.op.supported"),
-      };
-      return;
-  }
-  if (recipe != LOOM_TARGET_MATH_RECIPE_UNKNOWN) {
-    // Rounded base/angle conversions require approximate source semantics.
-    *out_decision = (loom_target_math_policy_decision_t){
-        .action = query->element_type == LOOM_SCALAR_TYPE_F32 &&
-                          iree_any_bit_set(query->fastmath_flags,
-                                           LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)
-                      ? LOOM_TARGET_MATH_POLICY_ACTION_REWRITE
-                      : LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-        .recipe = recipe,
-        .constraint_key = IREE_SVL("math.recipe.afn_f32"),
-    };
-    return;
-  }
-  if (query->element_type != LOOM_SCALAR_TYPE_F32 &&
-      query->element_type != LOOM_SCALAR_TYPE_F64) {
-    *out_decision = (loom_target_math_policy_decision_t){
-        .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-        .constraint_key = IREE_SVL("math.element.f32_f64"),
-    };
-    return;
-  }
-  if (query->math_op == LOOM_TARGET_MATH_OP_ROUNDF) {
-    *out_decision = (loom_target_math_policy_decision_t){
-        .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
-        .recipe = LOOM_TARGET_MATH_RECIPE_ROUND_AWAY,
-        .constraint_key = IREE_SVL("math.recipe.round_away"),
-    };
-    return;
-  }
-  *out_decision = (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_KEEP,
-      .constraint_key = IREE_SVL("math.op.selected_width"),
-  };
-}
+#include <stddef.h>
 
-static bool loom_vm_math_prefer_fma(
-    const loom_target_math_policy_t* policy,
-    const loom_target_bundle_t* target_bundle, loom_type_t value_type,
-    loom_target_math_fastmath_flags_t fastmath_flags) {
-  (void)policy;
-  (void)target_bundle;
-  (void)fastmath_flags;
-  const loom_scalar_type_t element_type = loom_type_element_type(value_type);
-  return loom_type_is_scalar(value_type) &&
-         (element_type == LOOM_SCALAR_TYPE_F32 ||
-          element_type == LOOM_SCALAR_TYPE_F64);
-}
+#define LOOM_VM_MATH_CONSTRAINTS(_)                                       \
+  _(ELEMENT_F32_F64, element_f32_f64, "math.element.f32_f64")             \
+  _(EXP2_AFN_F32, exp2_afn_f32, "math.exp2.afn_f32")                      \
+  _(INVERSE_HYPERBOLIC_AFN, inverse_hyperbolic_afn,                       \
+    "math.inverse_hyperbolic.afn")                                        \
+  _(INVERSE_HYPERBOLIC_F32_EVALUATION, inverse_hyperbolic_f32_evaluation, \
+    "math.inverse_hyperbolic.f32_evaluation")                             \
+  _(OP_SELECTED_WIDTH, op_selected_width, "math.op.selected_width")       \
+  _(OP_SUPPORTED, op_supported, "math.op.supported")                      \
+  _(RECIPE_AFN_F32, recipe_afn_f32, "math.recipe.afn_f32")                \
+  _(RECIPE_INVERSE_HYPERBOLIC_F32, recipe_inverse_hyperbolic_f32,         \
+    "math.recipe.inverse_hyperbolic_f32")                                 \
+  _(RECIPE_ROUND_AWAY, recipe_round_away, "math.recipe.round_away")       \
+  _(RECIPE_WIDEN_F32_ROUND, recipe_widen_f32_round,                       \
+    "math.recipe.widen_f32_round")                                        \
+  _(ROOT_F32, root_f32, "math.root.f32")                                  \
+  _(TURNS_TRIG_F32, turns_trig_f32, "math.turns_trig.f32")
 
-static const loom_target_math_policy_t loom_vm_math_policy = {
+enum loom_vm_math_constraint_e {
+  LOOM_VM_MATH_CONSTRAINT_NONE = 0,
+#define LOOM_VM_MATH_CONSTRAINT_ENUM(name, field, value) \
+  LOOM_VM_MATH_CONSTRAINT_##name,
+  LOOM_VM_MATH_CONSTRAINTS(LOOM_VM_MATH_CONSTRAINT_ENUM)
+#undef LOOM_VM_MATH_CONSTRAINT_ENUM
+      LOOM_VM_MATH_CONSTRAINT_COUNT_,
+};
+
+typedef struct loom_vm_math_constraint_strings_t {
+#define LOOM_VM_MATH_CONSTRAINT_FIELD(name, field, value) \
+  char field[sizeof(value)];
+  LOOM_VM_MATH_CONSTRAINTS(LOOM_VM_MATH_CONSTRAINT_FIELD)
+#undef LOOM_VM_MATH_CONSTRAINT_FIELD
+} loom_vm_math_constraint_strings_t;
+
+static const loom_vm_math_constraint_strings_t kVmMathConstraintStrings = {
+#define LOOM_VM_MATH_CONSTRAINT_VALUE(name, field, value) .field = value,
+    LOOM_VM_MATH_CONSTRAINTS(LOOM_VM_MATH_CONSTRAINT_VALUE)
+#undef LOOM_VM_MATH_CONSTRAINT_VALUE
+};
+
+static const loom_string_ref_t
+    kVmMathConstraints[LOOM_VM_MATH_CONSTRAINT_COUNT_ - 1] = {
+#define LOOM_VM_MATH_CONSTRAINT_REF(name, field, value)                      \
+  [LOOM_VM_MATH_CONSTRAINT_##name - 1] =                                     \
+      LOOM_STRING_REF(0, offsetof(loom_vm_math_constraint_strings_t, field), \
+                      sizeof(value) - 1),
+        LOOM_VM_MATH_CONSTRAINTS(LOOM_VM_MATH_CONSTRAINT_REF)
+#undef LOOM_VM_MATH_CONSTRAINT_REF
+};
+
+#undef LOOM_VM_MATH_CONSTRAINTS
+
+enum loom_vm_math_evaluation_e {
+  LOOM_VM_MATH_EVALUATION_NONE = 0,
+  LOOM_VM_MATH_EVALUATION_SOURCE_F32 = 1,
+  LOOM_VM_MATH_EVALUATION_WIDENED_F32 = 2,
+};
+
+static const loom_target_math_evaluation_t kVmMathEvaluations[] = {
+    [LOOM_VM_MATH_EVALUATION_SOURCE_F32 - 1] =
+        {
+            .kind = LOOM_TARGET_MATH_EVALUATION_SOURCE,
+            .accumulator_element_type = LOOM_SCALAR_TYPE_F32,
+        },
+    [LOOM_VM_MATH_EVALUATION_WIDENED_F32 - 1] =
+        {
+            .kind = LOOM_TARGET_MATH_EVALUATION_WIDENED,
+            .accumulator_element_type = LOOM_SCALAR_TYPE_F32,
+        },
+};
+
+#define LOOM_VM_MATH_DIRECT_RULE(element_types_, required_fastmath_flags_,    \
+                                 recipe_, evaluation_, constraint_,           \
+                                 permission_constraint_)                      \
+  LOOM_TARGET_MATH_POLICY_DIRECT_RULE(                                        \
+      element_types_, LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,                   \
+      required_fastmath_flags_, recipe_, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, evaluation_, constraint_,          \
+      permission_constraint_)
+
+static const loom_target_math_policy_direct_rule_t
+    kVmMathDirectRules[LOOM_TARGET_MATH_OP_COUNT] = {
+#define LOOM_VM_MATH_SELECTED_WIDTH_RULE(op_)                                  \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_VM_MATH_DIRECT_RULE(                      \
+      LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,                     \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_TARGET_MATH_RECIPE_UNKNOWN,    \
+      LOOM_VM_MATH_EVALUATION_NONE, LOOM_VM_MATH_CONSTRAINT_OP_SELECTED_WIDTH, \
+      LOOM_VM_MATH_CONSTRAINT_NONE)
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(ADDF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(SUBF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(MULF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(CEILF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(FLOORF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(ROUNDEVENF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(TRUNCF),
+        LOOM_VM_MATH_SELECTED_WIDTH_RULE(LOG2F),
+#undef LOOM_VM_MATH_SELECTED_WIDTH_RULE
+        [LOOM_TARGET_MATH_OP_ROUNDF] = LOOM_VM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_ROUND_AWAY, LOOM_VM_MATH_EVALUATION_NONE,
+            LOOM_VM_MATH_CONSTRAINT_RECIPE_ROUND_AWAY,
+            LOOM_VM_MATH_CONSTRAINT_NONE),
+        [LOOM_TARGET_MATH_OP_EXP2F] = LOOM_VM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_VM_MATH_EVALUATION_NONE,
+            LOOM_VM_MATH_CONSTRAINT_OP_SELECTED_WIDTH,
+            LOOM_VM_MATH_CONSTRAINT_EXP2_AFN_F32),
+        [LOOM_TARGET_MATH_OP_SQRTF] = LOOM_VM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_VM_MATH_EVALUATION_NONE,
+            LOOM_VM_MATH_CONSTRAINT_OP_SELECTED_WIDTH,
+            LOOM_VM_MATH_CONSTRAINT_NONE),
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_VM_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_VM_MATH_EVALUATION_NONE,
+            LOOM_VM_MATH_CONSTRAINT_OP_SELECTED_WIDTH,
+            LOOM_VM_MATH_CONSTRAINT_NONE),
+#define LOOM_VM_MATH_AFN_RECIPE_RULE(op_, recipe_)                     \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_VM_MATH_DIRECT_RULE(              \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,    \
+      LOOM_TARGET_MATH_RECIPE_##recipe_, LOOM_VM_MATH_EVALUATION_NONE, \
+      LOOM_VM_MATH_CONSTRAINT_RECIPE_AFN_F32,                          \
+      LOOM_VM_MATH_CONSTRAINT_RECIPE_AFN_F32)
+        LOOM_VM_MATH_AFN_RECIPE_RULE(EXPF, EXP_EXP2_F32),
+        LOOM_VM_MATH_AFN_RECIPE_RULE(LOGF, LOG_LOG2_F32),
+        LOOM_VM_MATH_AFN_RECIPE_RULE(SINF, SIN_TURNS_F32),
+        LOOM_VM_MATH_AFN_RECIPE_RULE(COSF, COS_TURNS_F32),
+#undef LOOM_VM_MATH_AFN_RECIPE_RULE
+#define LOOM_VM_MATH_TURNS_RULE(op_)                                 \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_VM_MATH_DIRECT_RULE(            \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      LOOM_TARGET_MATH_RECIPE_UNKNOWN, LOOM_VM_MATH_EVALUATION_NONE, \
+      LOOM_VM_MATH_CONSTRAINT_OP_SELECTED_WIDTH, LOOM_VM_MATH_CONSTRAINT_NONE)
+        LOOM_VM_MATH_TURNS_RULE(SINTURNSF),
+        LOOM_VM_MATH_TURNS_RULE(COSTURNSF),
+#undef LOOM_VM_MATH_TURNS_RULE
+#define LOOM_VM_MATH_INVERSE_RULE(op_)                              \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_VM_MATH_DIRECT_RULE(           \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN, \
+      LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32,               \
+      LOOM_VM_MATH_EVALUATION_SOURCE_F32,                           \
+      LOOM_VM_MATH_CONSTRAINT_RECIPE_INVERSE_HYPERBOLIC_F32,        \
+      LOOM_VM_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_AFN)
+        LOOM_VM_MATH_INVERSE_RULE(ASINHF),
+        LOOM_VM_MATH_INVERSE_RULE(ACOSHF),
+        LOOM_VM_MATH_INVERSE_RULE(ATANHF),
+#undef LOOM_VM_MATH_INVERSE_RULE
+};
+
+#undef LOOM_VM_MATH_DIRECT_RULE
+
+#define LOOM_VM_MATH_MATCH(element_types_, required_fastmath_flags_) \
+  {                                                                  \
+      .element_types = (element_types_),                             \
+      .lane_domains = LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,          \
+      .shape = LOOM_TARGET_MATH_POLICY_SHAPE_ANY,                    \
+      .required_fastmath_flags = (required_fastmath_flags_),         \
+  }
+
+enum loom_vm_math_rule_e {
+  LOOM_VM_MATH_RULE_ARITHMETIC_NARROW = 0,
+  LOOM_VM_MATH_RULE_INVERSE_NARROW,
+  LOOM_VM_MATH_RULE_COUNT_,
+};
+
+static const loom_target_math_policy_rule_t
+    kVmMathRules[LOOM_VM_MATH_RULE_COUNT_] = {
+        [LOOM_VM_MATH_RULE_ARITHMETIC_NARROW] =
+            {
+                .match = LOOM_VM_MATH_MATCH(
+                    LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_BF16,
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_NONE),
+                .recipe = LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND,
+                .decision_constraint =
+                    LOOM_VM_MATH_CONSTRAINT_RECIPE_WIDEN_F32_ROUND,
+            },
+        [LOOM_VM_MATH_RULE_INVERSE_NARROW] =
+            {
+                .match = LOOM_VM_MATH_MATCH(LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+                                            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN),
+                .recipe = LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32,
+                .evaluation = LOOM_VM_MATH_EVALUATION_WIDENED_F32,
+                .decision_constraint =
+                    LOOM_VM_MATH_CONSTRAINT_RECIPE_INVERSE_HYPERBOLIC_F32,
+                .permission_constraint =
+                    LOOM_VM_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_AFN,
+            },
+};
+
+#undef LOOM_VM_MATH_MATCH
+
+#define LOOM_VM_MATH_SPAN(start_, count_, fallback_) \
+  {                                                  \
+      .rule_start = (start_),                        \
+      .rule_count = (count_),                        \
+      .fallback_constraint = (fallback_),            \
+  }
+
+static const loom_target_math_policy_rule_span_t
+    kVmMathOperationSpans[LOOM_TARGET_MATH_OP_COUNT] = {
+#define LOOM_VM_MATH_ARITHMETIC_SPAN(op_)                       \
+  [LOOM_TARGET_MATH_OP_##op_] =                                 \
+      LOOM_VM_MATH_SPAN(LOOM_VM_MATH_RULE_ARITHMETIC_NARROW, 1, \
+                        LOOM_VM_MATH_CONSTRAINT_ELEMENT_F32_F64)
+        LOOM_VM_MATH_ARITHMETIC_SPAN(ADDF),
+        LOOM_VM_MATH_ARITHMETIC_SPAN(SUBF),
+        LOOM_VM_MATH_ARITHMETIC_SPAN(MULF),
+#undef LOOM_VM_MATH_ARITHMETIC_SPAN
+#define LOOM_VM_MATH_FALLBACK(op_, constraint_) \
+  [LOOM_TARGET_MATH_OP_##op_] =                 \
+      LOOM_VM_MATH_SPAN(0, 0, LOOM_VM_MATH_CONSTRAINT_##constraint_)
+        LOOM_VM_MATH_FALLBACK(CEILF, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(FLOORF, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(ROUNDF, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(ROUNDEVENF, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(TRUNCF, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(LOG2F, ELEMENT_F32_F64),
+        LOOM_VM_MATH_FALLBACK(EXP2F, EXP2_AFN_F32),
+        LOOM_VM_MATH_FALLBACK(SQRTF, ROOT_F32),
+        LOOM_VM_MATH_FALLBACK(RSQRTF, ROOT_F32),
+        LOOM_VM_MATH_FALLBACK(EXPF, RECIPE_AFN_F32),
+        LOOM_VM_MATH_FALLBACK(LOGF, RECIPE_AFN_F32),
+        LOOM_VM_MATH_FALLBACK(SINF, RECIPE_AFN_F32),
+        LOOM_VM_MATH_FALLBACK(COSF, RECIPE_AFN_F32),
+        LOOM_VM_MATH_FALLBACK(SINTURNSF, TURNS_TRIG_F32),
+        LOOM_VM_MATH_FALLBACK(COSTURNSF, TURNS_TRIG_F32),
+#undef LOOM_VM_MATH_FALLBACK
+#define LOOM_VM_MATH_INVERSE_SPAN(op_)             \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_VM_MATH_SPAN( \
+      LOOM_VM_MATH_RULE_INVERSE_NARROW, 1,         \
+      LOOM_VM_MATH_CONSTRAINT_INVERSE_HYPERBOLIC_F32_EVALUATION)
+        LOOM_VM_MATH_INVERSE_SPAN(ASINHF),
+        LOOM_VM_MATH_INVERSE_SPAN(ACOSHF),
+        LOOM_VM_MATH_INVERSE_SPAN(ATANHF),
+#undef LOOM_VM_MATH_INVERSE_SPAN
+};
+
+#undef LOOM_VM_MATH_SPAN
+
+static const loom_target_math_policy_match_t kVmMathFmaForms[] = {
+    {
+        .element_types = LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
+        .lane_domains = LOOM_TARGET_MATH_LANE_DOMAIN_SET_SCALAR,
+        .shape = LOOM_TARGET_MATH_POLICY_SHAPE_ANY,
+    },
+};
+
+static const loom_target_math_policy_table_t kVmMathPolicyTable = {
+    .operation_spans = kVmMathOperationSpans,
+    .rules = kVmMathRules,
+    .fma_forms = kVmMathFmaForms,
+    .fma_form_count = IREE_ARRAYSIZE(kVmMathFmaForms),
+    .default_constraint = LOOM_VM_MATH_CONSTRAINT_OP_SUPPORTED,
+    .constraints = kVmMathConstraints,
+    .constraint_strings =
+        {
+            .data = {(const char*)&kVmMathConstraintStrings},
+            .data_length = {sizeof(kVmMathConstraintStrings)},
+        },
+    .evaluations = kVmMathEvaluations,
+};
+
+static const loom_target_math_policy_t kVmMathPolicy = {
     .name = IREE_SVL("vm-math"),
-    .query = loom_vm_math_policy_query,
-    .prefer_fma = loom_vm_math_prefer_fma,
+    .direct_rules = kVmMathDirectRules,
+    .table = &kVmMathPolicyTable,
 };
 
 void loom_vm_math_policy_registry_initialize(
     loom_target_math_policy_registry_t* out_registry) {
   static const loom_target_math_policy_registry_entry_t kEntries[] = {
-      {.contract_set_key = IREE_SVL("vm.core"), .policy = &loom_vm_math_policy},
+      {.contract_set_key = IREE_SVL("vm.core"), .policy = &kVmMathPolicy},
   };
   loom_target_math_policy_registry_initialize_from_entries(
       out_registry, kEntries, IREE_ARRAYSIZE(kEntries));
