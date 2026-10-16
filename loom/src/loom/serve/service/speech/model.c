@@ -333,13 +333,11 @@ static iree_status_t loom_serve_speech_prepare(
   for (iree_host_size_t i = 0;
        i < IREE_ARRAYSIZE(inputs) && iree_status_is_ok(status); ++i) {
     iree_vm_buffer_t* buffer = NULL;
-    status = iree_vm_buffer_create(inputs[i].size, 8, host_allocator, &buffer);
+    status = iree_vm_buffer_clone(
+        IREE_VM_BUFFER_ACCESS_FLAG_READ | IREE_VM_BUFFER_ACCESS_FLAG_WRITE,
+        iree_make_const_byte_span(inputs[i].data, inputs[i].size), 8,
+        host_allocator, &buffer);
     if (iree_status_is_ok(status)) {
-      iree_byte_span_t bytes;
-      status = iree_vm_buffer_map_write(buffer, 0, inputs[i].size, &bytes);
-      if (iree_status_is_ok(status)) {
-        memcpy(bytes.data, inputs[i].data, inputs[i].size);
-      }
       arguments[i] = iree_vm_buffer_variant_from_ptr_move(
           &model->control.vm_types, &buffer);
     }
