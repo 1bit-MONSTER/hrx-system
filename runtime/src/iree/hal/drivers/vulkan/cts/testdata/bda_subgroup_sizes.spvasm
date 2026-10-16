@@ -1,14 +1,14 @@
-; The two entries share instructions and read the actual runtime SubgroupSize.
-; Per-entry BDA requirements must produce different pipeline execution widths.
+; Fixed widths and aligned X dimensions require full subgroups. Subgroup/lane
+; coordinates must cover the output exactly, also for multidimensional groups.
 OpCapability Shader
 OpCapability Int64
 OpCapability GroupNonUniform
 OpCapability PhysicalStorageBufferAddresses
 OpMemoryModel PhysicalStorageBuffer64 GLSL450
-OpEntryPoint GLCompute %wave32 "wave32" %root %thread %width
-OpEntryPoint GLCompute %wave64 "wave64" %root %thread %width
-OpExecutionMode %wave32 LocalSize 128 1 1
-OpExecutionMode %wave64 LocalSize 128 1 1
+OpEntryPoint GLCompute %wave32 "wave32" %root %subgroup %lane %width %count
+OpEntryPoint GLCompute %wave64 "wave64" %root %subgroup %lane %width %count
+OpExecutionMode %wave32 LocalSize 32 2 2
+OpExecutionMode %wave64 LocalSize 64 2 1
 OpModuleProcessed "iree.vulkan.bda.v1[wave64].subgroup_size=64"
 OpModuleProcessed "iree.vulkan.bda.v1[wave32].subgroup_size=32"
 OpModuleProcessed "iree.vulkan.bda.v1[wave32].bindings=1"
@@ -26,13 +26,16 @@ OpMemberDecorate %AddressTable 0 Offset 0
 OpDecorate %values ArrayStride 4
 OpDecorate %Output Block
 OpMemberDecorate %Output 0 Offset 0
-OpDecorate %thread BuiltIn LocalInvocationIndex
+OpDecorate %subgroup BuiltIn SubgroupId
+OpDecorate %lane BuiltIn SubgroupLocalInvocationId
 OpDecorate %width BuiltIn SubgroupSize
+OpDecorate %count BuiltIn NumSubgroups
 %void = OpTypeVoid
 %function = OpTypeFunction %void
 %u32 = OpTypeInt 32 0
 %u64 = OpTypeInt 64 0
 %base = OpConstant %u32 0
+%extent = OpConstant %u32 128
 %binding_base_member = OpConstant %u32 2
 %Root = OpTypeStruct %u64 %u64 %u32 %u32 %u32 %u32
 %root_pointer = OpTypePointer PushConstant %Root
@@ -48,8 +51,10 @@ OpDecorate %width BuiltIn SubgroupSize
 %output_pointer = OpTypePointer PhysicalStorageBuffer %Output
 %value_pointer = OpTypePointer PhysicalStorageBuffer %u32
 %input_pointer = OpTypePointer Input %u32
-%thread = OpVariable %input_pointer Input
+%subgroup = OpVariable %input_pointer Input
+%lane = OpVariable %input_pointer Input
 %width = OpVariable %input_pointer Input
+%count = OpVariable %input_pointer Input
 %record = OpFunction %void None %function
 %record_entry = OpLabel
 %table_address_slot = OpAccessChain %root_address_pointer %root %base
@@ -60,10 +65,17 @@ OpDecorate %width BuiltIn SubgroupSize
 %output_address_slot = OpAccessChain %address_pointer %table %base %binding_base
 %output_address = OpLoad %u64 %output_address_slot Aligned 8
 %output = OpConvertUToPtr %output_pointer %output_address
-%position = OpLoad %u32 %thread
+%subgroup_id = OpLoad %u32 %subgroup
+%lane_id = OpLoad %u32 %lane
 %actual_width = OpLoad %u32 %width
+%actual_count = OpLoad %u32 %count
+%subgroup_base = OpIMul %u32 %subgroup_id %actual_width
+%position = OpIAdd %u32 %subgroup_base %lane_id
 %output_slot = OpAccessChain %value_pointer %output %base %position
 OpStore %output_slot %actual_width Aligned 4
+%count_position = OpIAdd %u32 %extent %position
+%count_slot = OpAccessChain %value_pointer %output %base %count_position
+OpStore %count_slot %actual_count Aligned 4
 OpReturn
 OpFunctionEnd
 %wave32 = OpFunction %void None %function

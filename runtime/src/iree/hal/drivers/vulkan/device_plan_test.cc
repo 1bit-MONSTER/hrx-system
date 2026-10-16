@@ -33,6 +33,7 @@ class PhysicalDeviceSnapshotBuilder {
     snapshot_.features13.sType =
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     snapshot_.features13.synchronization2 = VK_TRUE;
+    snapshot_.features13.computeFullSubgroups = VK_TRUE;
   }
 
   void AddQueueFamily(VkQueueFlags flags, uint32_t queue_count,
@@ -65,6 +66,10 @@ class PhysicalDeviceSnapshotBuilder {
 
   void DisableBufferDeviceAddress() {
     snapshot_.features12.bufferDeviceAddress = VK_FALSE;
+  }
+
+  void DisableComputeFullSubgroups() {
+    snapshot_.features13.computeFullSubgroups = VK_FALSE;
   }
 
   void EnableScalarShaderFeatures() {
@@ -402,7 +407,20 @@ TEST(DevicePlanTest, OwnedCreateRequiresBufferDeviceAddressBaseline) {
           NoFeatures(), &plan));
 }
 
-TEST(DevicePlanTest, OwnedCreateEnablesBaselineBufferDeviceAddress) {
+TEST(DevicePlanTest, OwnedCreateRequiresComputeFullSubgroupsBaseline) {
+  PhysicalDeviceSnapshotBuilder builder;
+  builder.AddQueueFamily(VK_QUEUE_COMPUTE_BIT, 1);
+  builder.DisableComputeFullSubgroups();
+  iree_hal_vulkan_device_options_t options = DefaultDeviceOptions();
+  ScopedDevicePlan plan;
+  IREE_EXPECT_STATUS_IS(
+      StatusCode::kUnavailable,
+      iree_hal_vulkan_device_plan_initialize_for_create(
+          builder.snapshot(), &options, IREE_HAL_VULKAN_REQUEST_FLAG_NONE,
+          NoFeatures(), &plan));
+}
+
+TEST(DevicePlanTest, OwnedCreateEnablesBaselineFeatures) {
   PhysicalDeviceSnapshotBuilder builder;
   builder.AddQueueFamily(VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, 1);
 
@@ -414,9 +432,9 @@ TEST(DevicePlanTest, OwnedCreateEnablesBaselineBufferDeviceAddress) {
       NoFeatures(), &plan));
 
   EXPECT_TRUE(plan.enabled_features12.bufferDeviceAddress);
-  EXPECT_TRUE(iree_all_bits_set(
-      plan.enabled_features.general,
-      IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES));
+  EXPECT_TRUE(plan.enabled_features13.computeFullSubgroups);
+  EXPECT_TRUE(iree_all_bits_set(plan.enabled_features.general,
+                                IREE_HAL_VULKAN_FEATURE_REQUIRED_BASELINE));
 }
 
 TEST(DevicePlanTest, OwnedCreateReportsAvailableScalarShaderFeatures) {
@@ -808,6 +826,29 @@ TEST(DevicePlanTest, OwnedCreateRejectsUnknownRequestFlags) {
                             builder.snapshot(), &options,
                             IREE_HAL_VULKAN_REQUEST_FLAG_ALL_RECOGNIZED + 1,
                             NoFeatures(), &plan));
+}
+
+TEST(DevicePlanTest, WrapRequiresEnabledBaselineFeatures) {
+  PhysicalDeviceSnapshotBuilder builder;
+  builder.AddQueueFamily(VK_QUEUE_COMPUTE_BIT, 1);
+  iree_hal_vulkan_device_options_t options = DefaultDeviceOptions();
+  for (auto feature : {
+           IREE_HAL_VULKAN_FEATURE_ENABLE_TIMELINE_SEMAPHORES,
+           IREE_HAL_VULKAN_FEATURE_ENABLE_SYNCHRONIZATION2,
+           IREE_HAL_VULKAN_FEATURE_ENABLE_SCALAR_BLOCK_LAYOUT,
+           IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES,
+           IREE_HAL_VULKAN_FEATURE_ENABLE_COMPUTE_FULL_SUBGROUPS,
+       }) {
+    SCOPED_TRACE(feature);
+    iree_hal_vulkan_external_device_params_t params = DefaultExternalParams();
+    params.enabled_features.general &= ~feature;
+    params.compute_queue_set.queue_family_index = 0;
+    params.compute_queue_set.queue_indices = 1ull << 0;
+    ScopedDevicePlan plan;
+    IREE_EXPECT_STATUS_IS(StatusCode::kFailedPrecondition,
+                          iree_hal_vulkan_device_plan_initialize_for_wrap(
+                              builder.snapshot(), &options, &params, &plan));
+  }
 }
 
 TEST(DevicePlanTest, WrapRejectsRequestFlagsInEnabledFeatures) {

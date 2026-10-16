@@ -769,7 +769,7 @@ iree_status_t iree_hal_vulkan_device_plan_initialize_for_create(
   out_plan->enabled_features13 = (VkPhysicalDeviceVulkan13Features){
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
       .subgroupSizeControl = snapshot->features13.subgroupSizeControl,
-      .computeFullSubgroups = snapshot->features13.computeFullSubgroups,
+      .computeFullSubgroups = VK_TRUE,
       .synchronization2 = VK_TRUE,
       .shaderIntegerDotProduct = snapshot->features13.shaderIntegerDotProduct,
   };
@@ -1036,6 +1036,9 @@ static iree_status_t iree_hal_vulkan_verify_external_enabled_features(
   IREE_HAL_VULKAN_REQUIRE_ENABLED_FEATURE(
       IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES,
       "bufferDeviceAddress");
+  IREE_HAL_VULKAN_REQUIRE_ENABLED_FEATURE(
+      IREE_HAL_VULKAN_FEATURE_ENABLE_COMPUTE_FULL_SUBGROUPS,
+      "computeFullSubgroups");
 #undef IREE_HAL_VULKAN_REQUIRE_ENABLED_FEATURE
 
   if (!iree_hal_vulkan_physical_device_supports_baseline(snapshot)) {

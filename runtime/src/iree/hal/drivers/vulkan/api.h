@@ -136,16 +136,19 @@ typedef enum iree_hal_vulkan_general_feature_bits_e {
   IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_BFLOAT16_COOPERATIVE_MATRIX = 1u << 24,
   // Requests and reports shaderSubgroupExtendedTypes support.
   IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES = 1u << 25,
+  // Reports computeFullSubgroups support enabled on a logical device.
+  IREE_HAL_VULKAN_FEATURE_ENABLE_COMPUTE_FULL_SUBGROUPS = 1u << 26,
 } iree_hal_vulkan_general_feature_bits_t;
 
 typedef uint32_t iree_hal_vulkan_general_features_t;
 
 // Required enabled logical-device feature set for the Vulkan HAL baseline.
-#define IREE_HAL_VULKAN_FEATURE_REQUIRED_BASELINE       \
-  (IREE_HAL_VULKAN_FEATURE_ENABLE_TIMELINE_SEMAPHORES | \
-   IREE_HAL_VULKAN_FEATURE_ENABLE_SYNCHRONIZATION2 |    \
-   IREE_HAL_VULKAN_FEATURE_ENABLE_SCALAR_BLOCK_LAYOUT | \
-   IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES)
+#define IREE_HAL_VULKAN_FEATURE_REQUIRED_BASELINE           \
+  (IREE_HAL_VULKAN_FEATURE_ENABLE_TIMELINE_SEMAPHORES |     \
+   IREE_HAL_VULKAN_FEATURE_ENABLE_SYNCHRONIZATION2 |        \
+   IREE_HAL_VULKAN_FEATURE_ENABLE_SCALAR_BLOCK_LAYOUT |     \
+   IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES | \
+   IREE_HAL_VULKAN_FEATURE_ENABLE_COMPUTE_FULL_SUBGROUPS)
 
 // Recognized feature bits accepted by public Vulkan HAL APIs.
 #define IREE_HAL_VULKAN_FEATURE_ALL_RECOGNIZED                         \

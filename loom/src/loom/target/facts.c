@@ -91,8 +91,8 @@ bool loom_target_snapshot_satisfies_specialization_requirement(
              target_requirement->codegen_format &&
          effective_snapshot->artifact_format ==
              target_requirement->artifact_format &&
-         (!target_requirement->dense_subgroup_partition ||
-          effective_snapshot->dense_subgroup_partition) &&
+         effective_snapshot->subgroup_partition >=
+             target_requirement->subgroup_partition &&
          effective_snapshot->default_pointer_bitwidth ==
              target_requirement->default_pointer_bitwidth &&
          effective_snapshot->index_bitwidth ==

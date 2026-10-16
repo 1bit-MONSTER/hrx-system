@@ -759,7 +759,7 @@ TEST_P(BdaSpirvTest, RejectsUnsupportedSubgroupSize) {
   EXPECT_EQ(executable.get(), nullptr);
 }
 
-TEST_P(BdaSpirvTest, QueueDispatchHonorsPerEntrySubgroupSizes) {
+TEST_P(BdaSpirvTest, QueueDispatchHonorsFullSubgroupsAndPerEntryWidths) {
   const auto* dispatch =
       iree_hal_device_spec_dispatch(iree_hal_device_spec(device_));
   ASSERT_NE(dispatch, nullptr);
@@ -775,7 +775,7 @@ TEST_P(BdaSpirvTest, QueueDispatchHonorsPerEntrySubgroupSizes) {
     SCOPED_TRACE(subgroup_size);
     Ref<iree_hal_buffer_t> output;
     IREE_ASSERT_OK(
-        CreateZeroedDeviceBuffer(128 * sizeof(uint32_t), output.out()));
+        CreateZeroedDeviceBuffer(256 * sizeof(uint32_t), output.out()));
     const iree_hal_buffer_ref_t binding =
         iree_hal_make_buffer_ref(output, 0, IREE_HAL_WHOLE_BUFFER);
     const iree_hal_buffer_ref_list_t bindings = {1, &binding};
@@ -792,8 +792,9 @@ TEST_P(BdaSpirvTest, QueueDispatchHonorsPerEntrySubgroupSizes) {
         IREE_HAL_DISPATCH_FLAG_NONE));
     IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
         completed, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
-    EXPECT_THAT(ReadBufferData<uint32_t>(output),
-                ContainerEq(std::vector<uint32_t>(128, subgroup_size)));
+    std::vector<uint32_t> expected(128, subgroup_size);
+    expected.insert(expected.end(), 128, 128 / subgroup_size);
+    EXPECT_THAT(ReadBufferData<uint32_t>(output), ContainerEq(expected));
   }
 }
 

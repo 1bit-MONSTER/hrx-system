@@ -237,6 +237,18 @@ TEST(SpirvTest, AnalyzesModuleWideFacts) {
   EXPECT_EQ(5u, analysis.compute_entry_point_name_storage_size);
 }
 
+TEST(SpirvTest, RetainsModuleVersion) {
+  std::vector<uint32_t> words(std::begin(kComputeBdaModule),
+                              std::end(kComputeBdaModule));
+  iree_hal_vulkan_spirv_module_analysis_t analysis = {};
+  for (uint32_t version : {0x00010300u, 0x00010600u}) {
+    words[1] = version;
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_analyze_module(
+        words.data(), words.size(), &analysis));
+    EXPECT_EQ(analysis.version, version);
+  }
+}
+
 TEST(SpirvTest, ParsesMultipleComputeEntryPoints) {
   static constexpr uint32_t kMultiEntryModule[] = {
       0x07230203u,

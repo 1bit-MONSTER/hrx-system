@@ -390,6 +390,10 @@ static iree_status_t iree_hal_vulkan_spirv_scan_module(
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_verify_module_header(
       spirv_words, spirv_word_count));
 
+  if (state->analysis) {
+    state->analysis->version = spirv_words[1];
+  }
+
   iree_host_size_t word_offset = IREE_HAL_VULKAN_SPIRV_HEADER_WORD_COUNT;
   while (word_offset < spirv_word_count) {
     uint16_t opcode = 0;

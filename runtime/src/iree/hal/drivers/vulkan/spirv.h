@@ -53,6 +53,9 @@ typedef uint32_t iree_hal_vulkan_spirv_module_capabilities_t;
 
 // Module-wide SPIR-V facts used while preparing Vulkan executables.
 typedef struct iree_hal_vulkan_spirv_module_analysis_t {
+  // SPIR-V version word from the verified module header.
+  uint32_t version;
+
   // BDA-compatible OpMemoryModel variant declared by the module.
   iree_hal_vulkan_spirv_bda_memory_model_t bda_memory_model;
 
@@ -214,8 +217,13 @@ iree_status_t iree_hal_vulkan_spirv_verify_bda_entry_point(
 // other tools' strings are ignored. Recognized malformed records, unknown entry
 // names, and duplicate fields fail load. Unscoped v1 records are invalid.
 // A subgroup size is a nonzero power of two. Its absence permits the device's
-// default width; its presence requires that exact execution width. Nondefault
-// widths require a static LocalSize and enabled compute subgroup-size control.
+// default width before SPIR-V 1.6 and varying widths from SPIR-V 1.6 onward;
+// its presence requires that exact execution width. Nondefault widths and all
+// fixed widths in SPIR-V 1.6 require a static LocalSize and enabled compute
+// subgroup-size control. Fixed-width entries whose LocalSize X is divisible
+// by that width execute with full subgroups. This establishes a dense partition
+// of the workgroup, without specifying the mapping of local invocation IDs to
+// subgroup IDs or lanes.
 //
 // The caller owns the output array. On success, release each element with
 // iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize. On failure all

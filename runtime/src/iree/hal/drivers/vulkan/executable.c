@@ -247,15 +247,23 @@ static iree_status_t iree_hal_vulkan_allocate_executable(
   return status;
 }
 
+static bool iree_hal_vulkan_requires_subgroup_size_control(
+    uint32_t spirv_version, uint32_t subgroup_size,
+    uint32_t default_subgroup_size) {
+  // Without ALLOW_VARYING_SUBGROUP_SIZE, pre-1.6 modules execute at the device
+  // default width. SPIR-V 1.6 permits varying widths unless explicitly fixed.
+  return subgroup_size != 0 && (spirv_version >= 0x00010600u ||
+                                subgroup_size != default_subgroup_size);
+}
+
 static iree_status_t iree_hal_vulkan_validate_subgroup_size(
     const iree_hal_vulkan_physical_device_snapshot_t* physical_device,
     iree_hal_vulkan_features_t enabled_features,
     const iree_hal_vulkan_spirv_compute_entry_point_t* entry_point,
-    uint32_t subgroup_size) {
-  // Stages without ALLOW_VARYING_SUBGROUP_SIZE execute at the device default.
-  // That guarantee does not require enabling subgroup-size control.
-  if (subgroup_size == 0 ||
-      subgroup_size == physical_device->subgroup_properties.subgroupSize) {
+    uint32_t spirv_version, uint32_t subgroup_size) {
+  if (!iree_hal_vulkan_requires_subgroup_size_control(
+          spirv_version, subgroup_size,
+          physical_device->subgroup_properties.subgroupSize)) {
     return iree_ok_status();
   }
   const VkPhysicalDeviceSubgroupSizeControlProperties* properties =
@@ -406,7 +414,7 @@ static iree_status_t iree_hal_vulkan_create_bda_executable(
       if (iree_status_is_ok(status)) {
         status = iree_hal_vulkan_validate_subgroup_size(
             physical_device, enabled_features, &entry_points[i],
-            metadata->subgroup_size);
+            analysis.version, metadata->subgroup_size);
       }
     }
   }
@@ -507,12 +515,19 @@ static iree_status_t iree_hal_vulkan_create_bda_executable(
         .requiredSubgroupSize = pipeline->subgroup_size,
     };
     const bool needs_subgroup_control =
-        pipeline->subgroup_size != 0 &&
-        pipeline->subgroup_size !=
-            physical_device->subgroup_properties.subgroupSize;
+        iree_hal_vulkan_requires_subgroup_size_control(
+            analysis.version, pipeline->subgroup_size,
+            physical_device->subgroup_properties.subgroupSize);
+    const bool requires_full_subgroups =
+        pipeline->subgroup_size != 0 && pipeline->workgroup_size[0] != 0 &&
+        pipeline->workgroup_size[0] % pipeline->subgroup_size == 0;
     VkPipelineShaderStageCreateInfo stage_create_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .pNext = needs_subgroup_control ? &subgroup_info : NULL,
+        .flags =
+            requires_full_subgroups
+                ? VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT
+                : 0,
         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
         .module = shader_module,
         .pName = pipeline->name.data,
