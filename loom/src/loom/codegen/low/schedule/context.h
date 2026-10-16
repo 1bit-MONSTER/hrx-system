@@ -234,6 +234,11 @@ typedef struct loom_low_schedule_completion_domain_t {
   uint16_t reg_class_id;
 } loom_low_schedule_completion_domain_t;
 
+enum loom_low_schedule_active_reg_class_flag_bits_e {
+  LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_PRESENT = 1u << 0,
+  LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_STRUCTURAL_RESULT = 1u << 1,
+};
+
 typedef struct loom_low_schedule_build_state_t {
   // Result-arena block pressure contributions, dense by block then class.
   uint64_t* block_pressure_peaks;
@@ -351,6 +356,10 @@ typedef struct loom_low_schedule_build_state_t {
   loom_low_schedule_hazard_state_t* hazard_states;
   // Descriptor register-class state read/write bits, dense by register class.
   uint8_t* reg_class_state_flags;
+  // Function-local register-class presence bits used by packing resources.
+  uint8_t* active_reg_class_flags;
+  // Bitset of descriptors that have contributed their state classes.
+  uint64_t* indexed_descriptor_bits;
   // Hard register-pressure limits used while scoring candidates.
   struct {
     // Live-unit limits indexed by descriptor register-class ID. Classes in a

@@ -339,6 +339,7 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
             allocatable_count=8,
         ),
     ),
+    register_packing_resources=X86_SCALAR_DESCRIPTOR_SET.register_packing_resources,
     resources=(
         Resource(_RESOURCE_SCALAR, capacity_per_cycle=1, kind=ResourceKind.SCALAR_ALU),
         Resource(

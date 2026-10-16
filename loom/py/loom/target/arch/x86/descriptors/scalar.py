@@ -41,6 +41,8 @@ from loom.target.low_descriptors import (
     RegClass,
     RegClassAlt,
     RegClassFlag,
+    RegisterPackingResource,
+    RegisterPackingResourceMember,
     Resource,
     ResourceKind,
     ScheduleClass,
@@ -171,6 +173,22 @@ _REG_EAX = "x86.eax"
 _REG_EDX = "x86.edx"
 _REG_ECX = "x86.ecx"
 _REG_RCX = "x86.rcx"
+
+_FIXED_GPR_REGISTER_CLASSES = (
+    (_REG_EAX, 32, "rax"),
+    (_REG_RAX, 64, "rax"),
+    (_REG_EDX, 32, "rdx"),
+    (_REG_RDX, 64, "rdx"),
+    # Count carriers preserve the source width while both classes occupy RCX.
+    # The shift instruction reads CL; ordinary copies use ECX/RCX.
+    (_REG_ECX, 32, "rcx"),
+    (_REG_RCX, 64, "rcx"),
+)
+_GPR_PACKING_REGISTER_CLASSES = (
+    _REG_GPR32,
+    _REG_GPR64,
+    *(row[0] for row in _FIXED_GPR_REGISTER_CLASSES),
+)
 
 
 def _gpr32_destructive_binary_descriptor(
@@ -1569,28 +1587,17 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
                 ),
                 physical_registers=(register,),
             )
-            for register_class, bit_count, register in (
-                (_REG_EAX, 32, "rax"),
-                (_REG_RAX, 64, "rax"),
-                (_REG_EDX, 32, "rdx"),
-                (_REG_RDX, 64, "rdx"),
-            )
+            for register_class, bit_count, register in _FIXED_GPR_REGISTER_CLASSES
         ),
-        # Count carriers preserve the source width while both classes occupy
-        # RCX. The shift instruction reads CL; ordinary copies use ECX/RCX.
-        *(
-            RegClass(
-                register_class,
-                bit_count,
-                SpillSlotSpace.STACK,
-                flags=(
-                    RegClassFlag.PHYSICAL,
-                    RegClassFlag.UNSPILLABLE,
-                    RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS,
-                ),
-                physical_registers=("rcx",),
-            )
-            for register_class, bit_count in ((_REG_ECX, 32), (_REG_RCX, 64))
+    ),
+    register_packing_resources=(
+        RegisterPackingResource(
+            name="x86.gpr.units",
+            capacity_register_class=_REG_GPR64,
+            members=tuple(
+                RegisterPackingResourceMember(register_class)
+                for register_class in _GPR_PACKING_REGISTER_CLASSES
+            ),
         ),
     ),
     resources=(

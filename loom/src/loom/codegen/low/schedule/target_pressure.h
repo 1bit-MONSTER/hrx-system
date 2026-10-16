@@ -27,7 +27,7 @@ enum loom_low_schedule_resource_pressure_flag_bits_e {
 // Resolves function-local packing-resource capacities and leaves resources
 // inactive when direct register pressure already carries the same signal.
 iree_status_t loom_low_schedule_target_pressure_initialize_packing_resources(
-    loom_low_schedule_build_state_t* state);
+    loom_low_schedule_build_state_t* state, const uint8_t* active_reg_classes);
 
 // Returns the function-local capacity of |resource_id|, or UINT32_MAX when the
 // resource is redundant for this function.

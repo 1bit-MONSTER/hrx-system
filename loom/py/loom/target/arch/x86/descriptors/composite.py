@@ -102,6 +102,7 @@ def _composite_descriptor_set(
         reg_classes=_merge_named_items(
             tuple(descriptor_set.reg_classes for descriptor_set, _ in components)
         ),
+        register_packing_resources=core.register_packing_resources,
         resources=_merge_named_items(
             tuple(descriptor_set.resources for descriptor_set, _ in components)
         ),

@@ -36,6 +36,42 @@ enum loom_low_schedule_state_access_bits_e {
   LOOM_LOW_SCHEDULE_STATE_ACCESS_WRITE = 1u << 1,
 };
 
+static bool loom_low_schedule_needs_pressure_limits(
+    const loom_low_schedule_build_state_t* state) {
+  return loom_low_schedule_strategy_uses_pressure(state->options->strategy) ||
+         iree_any_bit_set(state->options->diagnostic_flags,
+                          LOOM_LOW_SCHEDULE_DIAGNOSTIC_PRESSURE_PEAKS);
+}
+
+static iree_status_t loom_low_schedule_initialize_active_reg_class_index(
+    loom_low_schedule_build_state_t* state) {
+  const loom_low_descriptor_set_t* descriptor_set =
+      state->target.descriptor_set;
+  if (!loom_low_schedule_needs_pressure_limits(state) ||
+      descriptor_set->register_packing_resource_count == 0 ||
+      descriptor_set->reg_class_count == 0) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      state->scratch_arena, descriptor_set->reg_class_count,
+      sizeof(*state->active_reg_class_flags),
+      (void**)&state->active_reg_class_flags));
+  memset(
+      state->active_reg_class_flags, 0,
+      descriptor_set->reg_class_count * sizeof(*state->active_reg_class_flags));
+  if (descriptor_set->descriptor_ordinal_count != 0) {
+    const iree_host_size_t descriptor_word_count =
+        iree_host_size_ceil_div(descriptor_set->descriptor_ordinal_count, 64u);
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(state->scratch_arena, descriptor_word_count,
+                                  sizeof(*state->indexed_descriptor_bits),
+                                  (void**)&state->indexed_descriptor_bits));
+    memset(state->indexed_descriptor_bits, 0,
+           descriptor_word_count * sizeof(*state->indexed_descriptor_bits));
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_schedule_initialize_value_records(
     loom_low_schedule_build_state_t* state) {
   const loom_local_value_domain_t* value_domain = state->value_domain;
@@ -87,6 +123,10 @@ static iree_status_t loom_low_schedule_initialize_value_records(
             &state->register_type_resolver, type, &value->register_class_id,
             NULL)) {
       value->unit_count = loom_low_register_type_unit_count(type);
+      if (state->active_reg_class_flags != NULL) {
+        state->active_reg_class_flags[value->register_class_id] |=
+            LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_PRESENT;
+      }
       const loom_low_reg_class_t* reg_class =
           &state->target.descriptor_set->reg_classes[value->register_class_id];
       if (iree_all_bits_set(reg_class->flags,
@@ -103,6 +143,8 @@ static iree_status_t loom_low_schedule_initialize_value_records(
 
 static iree_status_t loom_low_schedule_initialize_storage(
     loom_low_schedule_build_state_t* state, iree_host_size_t node_count) {
+  IREE_RETURN_IF_ERROR(
+      loom_low_schedule_initialize_active_reg_class_index(state));
   IREE_RETURN_IF_ERROR(loom_low_schedule_initialize_value_records(state));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       state->arena, state->body->block_count, sizeof(*state->blocks),
@@ -324,16 +366,31 @@ static uint32_t loom_low_schedule_unspillable_completion_capacity(
   return pressure_set_limit->live_unit_limit;
 }
 
+// Maps active structural result classes to their target state classes after
+// node construction has completed the function-local register-class index.
+static void loom_low_schedule_complete_active_reg_class_index(
+    loom_low_schedule_build_state_t* state) {
+  uint8_t* active_reg_classes = state->active_reg_class_flags;
+  if (active_reg_classes == NULL) {
+    return;
+  }
+  const loom_low_schedule_structural_state_read_list_t structural_reads =
+      state->options->structural_state_reads;
+  for (iree_host_size_t i = 0; i < structural_reads.count; ++i) {
+    const loom_low_schedule_structural_state_read_t* row =
+        &structural_reads.values[i];
+    if (iree_any_bit_set(
+            active_reg_classes[row->result_reg_class_id],
+            LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_STRUCTURAL_RESULT)) {
+      active_reg_classes[row->state_reg_class_id] |=
+          LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_PRESENT;
+    }
+  }
+}
+
 static iree_status_t loom_low_schedule_initialize_pressure_limits(
     loom_low_schedule_build_state_t* state) {
-  const bool uses_pressure_strategy =
-      state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_PRESSURE ||
-      state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_LATENCY_HIDING ||
-      state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
-  const bool emits_pressure_diagnostics =
-      iree_any_bit_set(state->options->diagnostic_flags,
-                       LOOM_LOW_SCHEDULE_DIAGNOSTIC_PRESSURE_PEAKS);
-  if (!uses_pressure_strategy && !emits_pressure_diagnostics) {
+  if (!loom_low_schedule_needs_pressure_limits(state)) {
     return iree_ok_status();
   }
   const loom_low_descriptor_set_t* descriptor_set =
@@ -375,6 +432,9 @@ static iree_status_t loom_low_schedule_initialize_pressure_limits(
     return iree_ok_status();
   }
 
+  loom_low_schedule_complete_active_reg_class_index(state);
+  uint8_t* active_reg_classes = state->active_reg_class_flags;
+
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       state->scratch_arena, descriptor_set->reg_class_count,
       sizeof(*state->pressure_limits.by_reg_class),
@@ -404,14 +464,22 @@ static iree_status_t loom_low_schedule_initialize_pressure_limits(
       state->pressure_limits.pressure_sets[pressure_set_id]
           .has_multiple_active_reg_classes = 0;
     }
-    for (loom_value_ordinal_t value_ordinal = 0;
-         value_ordinal < state->value_domain->value_count; ++value_ordinal) {
-      loom_low_schedule_note_active_pressure_class(
-          state, state->values[value_ordinal].register_class_id);
+    if (active_reg_classes == NULL) {
+      for (loom_value_ordinal_t value_ordinal = 0;
+           value_ordinal < state->value_domain->value_count; ++value_ordinal) {
+        loom_low_schedule_note_active_pressure_class(
+            state, state->values[value_ordinal].register_class_id);
+      }
     }
     for (uint32_t reg_class_id = 0;
          reg_class_id < descriptor_set->reg_class_count; ++reg_class_id) {
-      if (state->reg_class_state_flags[reg_class_id] != 0) {
+      const bool is_active =
+          active_reg_classes != NULL
+              ? iree_any_bit_set(
+                    active_reg_classes[reg_class_id],
+                    LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_PRESENT)
+              : state->reg_class_state_flags[reg_class_id] != 0;
+      if (is_active) {
         loom_low_schedule_note_active_pressure_class(state,
                                                      (uint16_t)reg_class_id);
       }
@@ -456,8 +524,11 @@ static iree_status_t loom_low_schedule_initialize_pressure_limits(
     }
   }
 
-  IREE_RETURN_IF_ERROR(
-      loom_low_schedule_target_pressure_initialize_packing_resources(state));
+  if (active_reg_classes != NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_schedule_target_pressure_initialize_packing_resources(
+            state, active_reg_classes));
+  }
 
   if (state->options->strategy != LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL) {
     return iree_ok_status();
@@ -707,8 +778,8 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
         &descriptor_set->reg_class_alts[alt_index];
     state->reg_class_state_flags[alt->reg_class_id] |= access_flags;
   }
-  IREE_RETURN_IF_ERROR(loom_low_schedule_initialize_pressure_limits(state));
   IREE_RETURN_IF_ERROR(loom_low_schedule_verify_structural_state_reads(state));
+  IREE_RETURN_IF_ERROR(loom_low_schedule_initialize_pressure_limits(state));
   if (state->call_node_count) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->arena, state->call_node_count, sizeof(*state->call_node_indices),

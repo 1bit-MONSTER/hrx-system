@@ -1351,6 +1351,7 @@ X86_AVX2_DESCRIPTOR_SET = DescriptorSet(
             alias_set_id=1,
         ),
     ),
+    register_packing_resources=X86_SCALAR_DESCRIPTOR_SET.register_packing_resources,
     resources=(
         *X86_SCALAR_DESCRIPTOR_SET.resources,
         Resource(

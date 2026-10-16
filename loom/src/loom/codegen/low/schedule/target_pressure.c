@@ -539,33 +539,13 @@ static bool loom_low_schedule_register_packing_resource_is_redundant(
 }
 
 iree_status_t loom_low_schedule_target_pressure_initialize_packing_resources(
-    loom_low_schedule_build_state_t* state) {
+    loom_low_schedule_build_state_t* state, const uint8_t* active_reg_classes) {
   const loom_low_descriptor_set_t* descriptor_set =
       state->target.descriptor_set;
-  const uint16_t reg_class_count = descriptor_set->reg_class_count;
   const uint16_t resource_count =
       descriptor_set->register_packing_resource_count;
   if (resource_count == 0) {
     return iree_ok_status();
-  }
-
-  uint8_t* active_reg_classes = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      state->scratch_arena, reg_class_count, sizeof(*active_reg_classes),
-      (void**)&active_reg_classes));
-  memset(active_reg_classes, 0, reg_class_count * sizeof(*active_reg_classes));
-  for (loom_value_ordinal_t value_ordinal = 0;
-       value_ordinal < state->value_domain->value_count; ++value_ordinal) {
-    const uint16_t reg_class_id =
-        state->values[value_ordinal].register_class_id;
-    if (reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
-      active_reg_classes[reg_class_id] = 1;
-    }
-  }
-  for (uint16_t reg_class_id = 0; reg_class_id < reg_class_count;
-       ++reg_class_id) {
-    active_reg_classes[reg_class_id] |=
-        state->reg_class_state_flags[reg_class_id] != 0;
   }
 
   uint32_t* capacities = NULL;
