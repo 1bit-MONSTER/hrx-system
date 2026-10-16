@@ -74,23 +74,6 @@ defines the optimized intervals.
 
 ## Compiler execution cases
 
-`integer_shifts_npu2_test` checks scalar word and split-word shifts using streamed
-packets. An independent integer oracle covers all legal dynamic counts, bounded
-count ranges, constant word boundaries, logical and signed right shifts, and
-retained high words. The 37,888 results include edge bit patterns and seeded
-random inputs; binding tails and unchanged inputs are checked as well. This test
-uses the same native execution path and resource lease without requiring the
-C++ importer.
-
-`integer_widening_npu2_test` checks 17-lane signed and unsigned i32-to-i64
-vectors alongside a nine-lane table quantization result. The first widening
-lane beyond the ordinary vector boundary forces each result into a partial
-accumulator carrier while preserving the established three-threshold quantize
-oracle. Rotated high-bit patterns exercise every logical lane, and an
-independent scalar oracle checks sign extension, zero extension, ordered
-quantization, exact stores, destination padding, binding guards and unchanged
-inputs.
-
 `read_only_data_npu2_test` checks that immutable bytes retained by a worker are
 initialized in tile-local data memory before core activation. One nonzero table
 word contributes to the native result; an independent scalar oracle checks that
