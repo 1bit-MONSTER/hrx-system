@@ -13,8 +13,8 @@ and `vectors` for embeddings; replace those names with IDs from the live
 catalog.
 
 The [speech workflow](stream-speech.md) covers clients that consume raw PCM
-incrementally. Open WebUI's ordinary audio playback uses a completed audio file,
-so its configuration below covers chat, images and embeddings.
+incrementally. The audio settings below connect completed-recording dictation
+and buffered playback to separate recognition and speech deployments.
 
 ## Inspect the client-visible contract
 
@@ -266,18 +266,36 @@ additionally needs session events, microphone input, transcription, turn
 detection and interruption. Configuring a speech model on the ordinary OpenAI
 chat connection does not supply those capabilities.
 
-## PCM transcription clients
+## Transcription and dictation
 
 A client can send a completed recording to a recognition deployment through
 `POST /v1/audio/transcriptions` and read the JSON `text` result or request plain
 text. The [transcription profile](../http-profiles.md#audio-transcription) gives
 a copyable curl request and accepted fields.
 
-The upload must contain signed PCM16LE with explicit `rate` and `channels`
-parameters in the file part's `Content-Type`. Its geometry must match the model.
-Clients that send WAV, MP3, FLAC, or browser audio containers need an audio-format
-adapter before they can use this PCM profile. Changing the filename or MIME
-label does not convert those bytes into raw samples.
+With audio codecs enabled, upload WAV, MP3, or FLAC directly; the server
+converts sample rate and channel layout to the model's requirements. A PCM-only
+build accepts signed PCM16LE with explicit matching `rate` and `channels` in
+the file part's `Content-Type`. Changing the filename or MIME label does not
+convert unsupported bytes into an accepted format.
+
+For a prepared recognition deployment named `recognizer`, set these values
+under **Admin Settings → Audio → Speech-to-Text** in Open WebUI:
+
+| Setting | Value |
+| --- | --- |
+| Engine | OpenAI |
+| API Base URL | Your server URL followed by `/v1` |
+| API Key | `local`, or the key required by your deployment proxy |
+| STT Model | `recognizer` |
+| Request Format | Multipart Upload |
+
+Open WebUI's [transcription adapter](https://github.com/open-webui/open-webui/blob/f8ae8a6c328946dc62cd0712961a0632574581bf/backend/open_webui/routers/audio/__init__.py#L817)
+sends multipart audio and reads the returned `text`. Its full installation
+uses FFmpeg to prepare browser recordings as MP3 before forwarding them. Keep
+`BYPASS_PYDUB_PREPROCESSING=false` and enable MP3 input in the Loom server.
+The server itself does not require FFmpeg or Python. This configures the
+dictation microphone; read-aloud uses the separate TTS settings above.
 
 Chunked multipart transfer is accepted, but recognition begins after the upload
 completes. The endpoint returns finalized text; appendable microphone sessions,

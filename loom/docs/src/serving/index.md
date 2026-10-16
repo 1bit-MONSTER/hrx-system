@@ -17,9 +17,9 @@ without weights. [Stream speech](workflows/stream-speech.md) receives incrementa
 audio and explains how voices share numerical batches while advancing
 independently. [Audio transcription](http-profiles.md#audio-transcription) accepts
 recorded audio, and the
-[client guide](workflows/connect-model-clients.md#pcm-transcription-clients) describes
-the required upload format. [Model documents](model-documents.md) specify programs, assets,
-placement and per-model capacities. [Author model programs](model-programs.md)
+[client guide](workflows/connect-model-clients.md#transcription-and-dictation) describes
+upload formats and Open WebUI dictation. [Model documents](model-documents.md)
+specify programs, assets, placement and per-model capacities. [Author model programs](model-programs.md)
 describes preparation, execution and the contracts for adding a model package.
 The [operation](workflows/operate-model-server.md) and
 [observation](workflows/observe-model-server.md) workflows describe lifecycle

@@ -175,6 +175,31 @@ Disabled formats return an explicit error; other serving modalities do not
 depend on codec availability. Other operating systems exclude image providers
 by default.
 
+### Serving audio inputs
+
+WAV, MP3, and FLAC transcription inputs are enabled by default on Linux, macOS,
+and Windows. They use a pinned miniaudio decoder with device IO, private threads,
+resource management, encoding, and runtime library loading disabled. Container
+decoding, channel conversion, and resampling run on the serving application's
+shared CPU executor.
+
+One codec list selects a subset or removes the dependency entirely:
+
+```bash
+iree-bazel-configure '-DLOOM_SERVE_AUDIO_CODECS=wav;flac'
+iree-cmake-configure '-DLOOM_SERVE_AUDIO_CODECS=wav;flac'
+
+iree-bazel-configure -DLOOM_SERVE_AUDIO_CODECS=
+iree-cmake-configure -DLOOM_SERVE_AUDIO_CODECS=
+```
+
+The native Bazel spelling is `--//loom/config/serve:audio_codecs=wav,flac`.
+An empty list excludes miniaudio from the server's configured dependency graph;
+raw PCM16LE transcription and PCM speech synthesis remain available. Disabled
+encoded formats return an explicit error. This option selects input decoding;
+it does not add compressed speech output formats. Other operating systems
+exclude encoded-audio providers by default.
+
 ### Windows targets
 
 The selected C/C++ toolchain also supplies the MASM assembler and sanitizer
@@ -455,13 +480,14 @@ host compiler/platform boundaries without repeating dependency builds across
 every hardware or sanitizer configuration.
 
 These rows pass `IREE_CI_PLATFORM_COVERAGE=1` to the CI command script, enabling
-all optional image codecs and the explicit compile-coverage phase for their
+all optional image and audio codecs and the explicit compile-coverage phase for their
 configured graph. Other test-capable source-tree jobs invoke only their tests:
 Bazel and `dev.py cmake test` build the exact selected test closure before
 execution. Build-only sanitizer configurations and focused non-test integration
 witnesses retain explicit build phases. Other source-tree CI jobs retain
-image-serving tests through the built-in PAM provider. Ordinary build/test
-commands and release packaging retain the normal codec defaults. Additional
+image-serving tests through the built-in PAM provider and audio serving through
+raw PCM. Ordinary build/test commands and release packaging retain the normal
+codec defaults. Additional
 portable optional dependencies share this representative set; hardware execution
 remains governed by its own resource requirements.
 
