@@ -23,11 +23,13 @@ loom_cc_library(
         "contraction.c",
         "predicate_representation.c",
         "registry.c",
+        "vector_construct.c",
     ],
     hdrs = [
         "contraction.h",
         "lower.h",
         "predicate_representation.h",
+        "vector_construct.h",
     ],
     textual_hdrs = ["//loom/src/loom/target/arch/x86/contracts:tables.inl"],
     visibility = _X86_ROOT_VISIBILITY,
@@ -47,6 +49,8 @@ loom_cc_library(
         "//loom/src/loom/target/arch/x86:packed_dot_contract_projection",
         "//loom/src/loom/target/arch/x86:register_classes",
         "//loom/src/loom/target/arch/x86/contracts",
+        "//loom/src/loom/target/arch/x86/descriptors:vector_construct",
+        "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
     ],
 )

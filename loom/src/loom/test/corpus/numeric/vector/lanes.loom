@@ -274,3 +274,103 @@ check.scenario @partial_concat_payloads {
   }
   check.return
 }
+
+// Element-wise construction preserves lane order and the complete storage
+// payload for every numeric scalar type.
+func.def @construct_numeric_lanes(%input: buffer, %output: buffer) {
+  %o0 = index.constant 0 : offset
+  %o2 = index.constant 2 : offset
+  %o4 = index.constant 4 : offset
+  %o6 = index.constant 6 : offset
+  %o10 = index.constant 10 : offset
+  %o14 = index.constant 14 : offset
+  %o20 = index.constant 20 : offset
+  %o28 = index.constant 28 : offset
+  %o40 = index.constant 40 : offset
+  %o56 = index.constant 56 : offset
+  %i8_input = buffer.view %input[%o0] : buffer -> view<2xi8>
+  %i8_output = buffer.view %output[%o0] : buffer -> view<2xi8>
+  %i8_0 = view.load %i8_input[0] : view<2xi8> -> i8
+  %i8_1 = view.load %i8_input[1] : view<2xi8> -> i8
+  %i8 = vector.from_elements %i8_0, %i8_1 : vector<2xi8>
+  vector.store %i8, %i8_output[0] : vector<2xi8>, view<2xi8>
+  %e4_input = buffer.view %input[%o2] : buffer -> view<2xf8E4M3>
+  %e4_output = buffer.view %output[%o2] : buffer -> view<2xf8E4M3>
+  %e4_0 = view.load %e4_input[0] : view<2xf8E4M3> -> f8E4M3
+  %e4_1 = view.load %e4_input[1] : view<2xf8E4M3> -> f8E4M3
+  %e4 = vector.from_elements %e4_0, %e4_1 : vector<2xf8E4M3>
+  vector.store %e4, %e4_output[0] : vector<2xf8E4M3>, view<2xf8E4M3>
+  %e5_input = buffer.view %input[%o4] : buffer -> view<2xf8E5M2>
+  %e5_output = buffer.view %output[%o4] : buffer -> view<2xf8E5M2>
+  %e5_0 = view.load %e5_input[0] : view<2xf8E5M2> -> f8E5M2
+  %e5_1 = view.load %e5_input[1] : view<2xf8E5M2> -> f8E5M2
+  %e5 = vector.from_elements %e5_0, %e5_1 : vector<2xf8E5M2>
+  vector.store %e5, %e5_output[0] : vector<2xf8E5M2>, view<2xf8E5M2>
+  %i16_input = buffer.view %input[%o6] : buffer -> view<2xi16>
+  %i16_output = buffer.view %output[%o6] : buffer -> view<2xi16>
+  %i16_0 = view.load %i16_input[0] : view<2xi16> -> i16
+  %i16_1 = view.load %i16_input[1] : view<2xi16> -> i16
+  %i16 = vector.from_elements %i16_0, %i16_1 : vector<2xi16>
+  vector.store %i16, %i16_output[0] : vector<2xi16>, view<2xi16>
+  %f16_input = buffer.view %input[%o10] : buffer -> view<2xf16>
+  %f16_output = buffer.view %output[%o10] : buffer -> view<2xf16>
+  %f16_0 = view.load %f16_input[0] : view<2xf16> -> f16
+  %f16_1 = view.load %f16_input[1] : view<2xf16> -> f16
+  %f16 = vector.from_elements %f16_0, %f16_1 : vector<2xf16>
+  vector.store %f16, %f16_output[0] : vector<2xf16>, view<2xf16>
+  %bf16_input = buffer.view %input[%o14] : buffer -> view<2xbf16>
+  %bf16_output = buffer.view %output[%o14] : buffer -> view<2xbf16>
+  %bf16_0 = view.load %bf16_input[0] : view<2xbf16> -> bf16
+  %bf16_1 = view.load %bf16_input[1] : view<2xbf16> -> bf16
+  %bf16 = vector.from_elements %bf16_0, %bf16_1 : vector<2xbf16>
+  vector.store %bf16, %bf16_output[0] : vector<2xbf16>, view<2xbf16>
+  %i32_input = buffer.view %input[%o20] : buffer -> view<2xi32>
+  %i32_output = buffer.view %output[%o20] : buffer -> view<2xi32>
+  %i32_0 = view.load %i32_input[0] : view<2xi32> -> i32
+  %i32_1 = view.load %i32_input[1] : view<2xi32> -> i32
+  %i32 = vector.from_elements %i32_0, %i32_1 : vector<2xi32>
+  vector.store %i32, %i32_output[0] : vector<2xi32>, view<2xi32>
+  %f32_input = buffer.view %input[%o28] : buffer -> view<2xf32>
+  %f32_output = buffer.view %output[%o28] : buffer -> view<2xf32>
+  %f32_0 = view.load %f32_input[0] : view<2xf32> -> f32
+  %f32_1 = view.load %f32_input[1] : view<2xf32> -> f32
+  %f32 = vector.from_elements %f32_0, %f32_1 : vector<2xf32>
+  vector.store %f32, %f32_output[0] : vector<2xf32>, view<2xf32>
+  %i64_input = buffer.view %input[%o40] : buffer -> view<2xi64>
+  %i64_output = buffer.view %output[%o40] : buffer -> view<2xi64>
+  %i64_0 = view.load %i64_input[0] : view<2xi64> -> i64
+  %i64_1 = view.load %i64_input[1] : view<2xi64> -> i64
+  %i64 = vector.from_elements %i64_0, %i64_1 : vector<2xi64>
+  vector.store %i64, %i64_output[0] : vector<2xi64>, view<2xi64>
+  %f64_input = buffer.view %input[%o56] : buffer -> view<2xf64>
+  %f64_output = buffer.view %output[%o56] : buffer -> view<2xf64>
+  %f64_0 = view.load %f64_input[0] : view<2xf64> -> f64
+  %f64_1 = view.load %f64_input[1] : view<2xf64> -> f64
+  %f64 = vector.from_elements %f64_0, %f64_1 : vector<2xf64>
+  vector.store %f64, %f64_output[0] : vector<2xf64>, view<2xf64>
+  func.return
+}
+
+func.def @construct_numeric_lanes_oracle(%input: buffer, %output: buffer) {
+  %o0 = index.constant 0 : offset
+  %o20 = index.constant 20 : offset
+  %o40 = index.constant 40 : offset
+  %length0 = index.constant 18 : offset
+  %length1 = index.constant 16 : offset
+  %length2 = index.constant 32 : offset
+  buffer.copy %input[%o0], %output[%o0], %length0
+  buffer.copy %input[%o20], %output[%o20], %length1
+  buffer.copy %input[%o40], %output[%o40], %length2
+  func.return
+}
+
+check.scenario @constructed_numeric_lanes {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-44) step(1) : tensor<72xi8>
+    %output = check.generate.fill value(91) : tensor<72xi8>
+    check.compare<@construct_numeric_lanes, @construct_numeric_lanes_oracle>(%input, %output) : (tensor<72xi8>, tensor<72xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<72xi8>
+    }
+  }
+  check.return
+}

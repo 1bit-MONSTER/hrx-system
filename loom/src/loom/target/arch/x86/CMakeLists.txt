@@ -376,6 +376,7 @@ loom_check_test_suite(
     "test/source_low/split_barrier.loom-test"
     "test/source_low/storage_float_constants.loom-test"
     "test/source_low/uniform_shifts.loom-test"
+    "test/source_low/vector_from_elements.loom-test"
     "test/source_low/vector_large_insert.loom-test"
     "test/source_low/view_carrier.loom-test"
     "test/source_low/view_carriers.loom-test"

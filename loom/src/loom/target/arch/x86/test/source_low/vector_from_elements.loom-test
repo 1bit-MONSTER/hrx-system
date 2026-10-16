@@ -1,0 +1,306 @@
+// RUN: emit source-low output=low
+
+// GPR-backed storage and integer lanes share four physical insertion widths.
+x86.target<avx2> @target
+
+func.def target(@target) @construct_integer_chunks(%b0: i8, %b1: i8, %b2: i8, %b3: i8, %w0: bf16, %w1: bf16, %w2: bf16, %w3: bf16, %d0: i32, %d1: i32, %d2: i32, %d3: i32, %q0: i64, %q1: i64) -> (vector<4xi8>, vector<4xbf16>, vector<4xi32>, vector<2xi64>) {
+  %bytes = vector.from_elements %b0, %b1, %b2, %b3 : vector<4xi8>
+  %words = vector.from_elements %w0, %w1, %w2, %w3 : vector<4xbf16>
+  %dwords = vector.from_elements %d0, %d1, %d2, %d3 : vector<4xi32>
+  %qwords = vector.from_elements %q0, %q1 : vector<2xi64>
+  func.return %bytes, %words, %dwords, %qwords : vector<4xi8>, vector<4xbf16>, vector<4xi32>, vector<2xi64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (i8, i8, i8, i8, bf16, bf16, bf16, bf16, i32, i32, i32, i32, i64, i64) -> (vector<4xi8>, vector<4xbf16>, vector<4xi32>, vector<2xi64>)}) @construct_integer_chunks(%b0: reg<x86.gpr32>, %b1: reg<x86.gpr32>, %b2: reg<x86.gpr32>, %b3: reg<x86.gpr32>, %w0: reg<x86.gpr32>, %w1: reg<x86.gpr32>, %w2: reg<x86.gpr32>, %w3: reg<x86.gpr32>, %d0: reg<x86.gpr32>, %d1: reg<x86.gpr32>, %d2: reg<x86.gpr32>, %d3: reg<x86.gpr32>, %q0: reg<x86.gpr64>, %q1: reg<x86.gpr64>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %40 = vmovd.xmm.gpr32 %b0
+  %41 = vpinsrb.xmm %40, %b1, 1
+  %42 = vpinsrb.xmm %41, %b2, 2
+  %bytes = vpinsrb.xmm %42, %b3, 3
+  %44 = vmovd.xmm.gpr32 %w0
+  %45 = vpinsrw.xmm %44, %w1, 1
+  %46 = vpinsrw.xmm %45, %w2, 2
+  %words = vpinsrw.xmm %46, %w3, 3
+  %48 = vmovd.xmm.gpr32 %d0
+  %49 = vpinsrd.xmm %48, %d1, 1
+  %50 = vpinsrd.xmm %49, %d2, 2
+  %dwords = vpinsrd.xmm %50, %d3, 3
+  %52 = vmovq.xmm.gpr64 %q0
+  %qwords = vpinsrq.xmm %52, %q1, 1
+  return %bytes, %words, %dwords, %qwords
+}
+
+// ====
+
+// Feature overlays reuse the same constructor vocabulary through their own
+// descriptor-set ordinal.
+x86.target<avx2> @target {contract_feature_bits = 256, contract_set_key = "x86.avx2_features.core"}
+
+func.def target(@target) @construct_avx2_feature_view(%w0: bf16, %w1: bf16, %w2: bf16, %w3: bf16) -> (vector<4xbf16>) {
+  %result = vector.from_elements %w0, %w1, %w2, %w3 : vector<4xbf16>
+  func.return %result : vector<4xbf16>
+}
+
+// ----
+low.func.def target<x86.avx2_features.core>(@target) abi(object_function) abi_layout({signature = (bf16, bf16, bf16, bf16) -> (vector<4xbf16>)}) @construct_avx2_feature_view(%w0: reg<x86.gpr32>, %w1: reg<x86.gpr32>, %w2: reg<x86.gpr32>, %w3: reg<x86.gpr32>) -> (reg<x86.xmm>) asm {
+  %11 = vmovd.xmm.gpr32 %w0
+  %12 = vpinsrw.xmm %11, %w1, 1
+  %13 = vpinsrw.xmm %12, %w2, 2
+  %result = vpinsrw.xmm %13, %w3, 3
+  return %result
+}
+
+// ====
+
+// Floating payloads use their native scalar XMM carriers; completed XMM
+// chunks enter a YMM carrier once.
+x86.target<avx2> @target
+
+func.def target(@target) @construct_float_chunks(%s0: f32, %s1: f32, %s2: f32, %s3: f32, %s4: f32, %s5: f32, %s6: f32, %s7: f32, %d0: f64, %d1: f64) -> (vector<8xf32>, vector<2xf64>) {
+  %singles = vector.from_elements %s0, %s1, %s2, %s3, %s4, %s5, %s6, %s7 : vector<8xf32>
+  %doubles = vector.from_elements %d0, %d1 : vector<2xf64>
+  func.return %singles, %doubles : vector<8xf32>, vector<2xf64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (f32, f32, f32, f32, f32, f32, f32, f32, f64, f64) -> (vector<8xf32>, vector<2xf64>)}) @construct_float_chunks(%s0: reg<x86.xmm>, %s1: reg<x86.xmm>, %s2: reg<x86.xmm>, %s3: reg<x86.xmm>, %s4: reg<x86.xmm>, %s5: reg<x86.xmm>, %s6: reg<x86.xmm>, %s7: reg<x86.xmm>, %d0: reg<x86.xmm>, %d1: reg<x86.xmm>) -> (reg<x86.ymm>, reg<x86.xmm>) asm {
+  %26 = vinsertps.xmm %s0, %s1, 16
+  %27 = vinsertps.xmm %26, %s2, 32
+  %28 = vinsertps.xmm %27, %s3, 48
+  %29 = vinsertps.xmm %s4, %s5, 16
+  %30 = vinsertps.xmm %29, %s6, 32
+  %31 = vinsertps.xmm %30, %s7, 48
+  %32 = vxorps.zero.ymm
+  %33 = vinsertf128.ymm.xmm %32, %28, 0
+  %singles = vinsertf128.ymm.xmm %33, %31, 1
+  %doubles = vshufpd.xmm %d0, %d1, 0
+  return %singles, %doubles
+}
+
+// ====
+
+// Four completed XMM chunks enter a ZMM carrier once.
+x86.target<avx512> @target
+
+func.def target(@target) @construct_zmm_chunks(%q0: i64, %q1: i64, %q2: i64, %q3: i64, %q4: i64, %q5: i64, %q6: i64, %q7: i64) -> (vector<8xi64>) {
+  %result = vector.from_elements %q0, %q1, %q2, %q3, %q4, %q5, %q6, %q7 : vector<8xi64>
+  func.return %result : vector<8xi64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (i64, i64, i64, i64, i64, i64, i64, i64) -> (vector<8xi64>)}) @construct_zmm_chunks(%q0: reg<x86.gpr64>, %q1: reg<x86.gpr64>, %q2: reg<x86.gpr64>, %q3: reg<x86.gpr64>, %q4: reg<x86.gpr64>, %q5: reg<x86.gpr64>, %q6: reg<x86.gpr64>, %q7: reg<x86.gpr64>) -> (reg<x86.zmm>) asm {
+  %19 = vmovq.xmm.gpr64 %q0
+  %20 = vpinsrq.xmm %19, %q1, 1
+  %21 = vmovq.xmm.gpr64 %q2
+  %22 = vpinsrq.xmm %21, %q3, 1
+  %23 = vmovq.xmm.gpr64 %q4
+  %24 = vpinsrq.xmm %23, %q5, 1
+  %25 = vmovq.xmm.gpr64 %q6
+  %26 = vpinsrq.xmm %25, %q7, 1
+  %27 = vxorps.zero
+  %28 = vinsertf32x4.zmm.xmm %27, %20, 0
+  %29 = vinsertf32x4.zmm.xmm %28, %22, 1
+  %30 = vinsertf32x4.zmm.xmm %29, %24, 2
+  %result = vinsertf32x4.zmm.xmm %30, %26, 3
+  return %result
+}
+
+// ====
+
+// Native scalar FP16 arrives in XMM; later lanes expose their low payload once
+// before word insertion.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @construct_native_fp16(%h0: f16, %h1: f16, %h2: f16, %h3: f16) -> (vector<4xf16>) {
+  %result = vector.from_elements %h0, %h1, %h2, %h3 : vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (f16, f16, f16, f16) -> (vector<4xf16>)}) @construct_native_fp16(%h0: reg<x86.xmm>, %h1: reg<x86.xmm>, %h2: reg<x86.xmm>, %h3: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %11 = vmovd.gpr32.xmm %h1
+  %12 = vpinsrw.xmm %h0, %11, 1
+  %13 = vmovd.gpr32.xmm %h2
+  %14 = vpinsrw.xmm %12, %13, 2
+  %15 = vmovd.gpr32.xmm %h3
+  %result = vpinsrw.xmm %14, %15, 3
+  return %result
+}
+
+// ====
+
+// AVX2 constructs the callable predicate width and a qword selection width
+// directly from canonical scalar bits.
+x86.target<avx2> @target
+
+func.def target(@target) @construct_avx2_predicates(%p0: i1, %p1: i1, %p2: i1, %p3: i1, %true_value: vector<4xi64>, %false_value: vector<4xi64>) -> (vector<4xi1>, vector<4xi64>) {
+  %callable = vector.from_elements %p0, %p1, %p2, %p3 : vector<4xi1>
+  %condition = vector.from_elements %p3, %p2, %p1, %p0 : vector<4xi1>
+  %selected = vector.select %condition, %true_value, %false_value : vector<4xi64>
+  func.return %callable, %selected : vector<4xi1>, vector<4xi64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (i1, i1, i1, i1, vector<4xi64>, vector<4xi64>) -> (vector<4xi1>, vector<4xi64>)}) @construct_avx2_predicates(%p0: reg<x86.gpr32>, %p1: reg<x86.gpr32>, %p2: reg<x86.gpr32>, %p3: reg<x86.gpr32>, %true_value: reg<x86.ymm>, %false_value: reg<x86.ymm>) -> (reg<x86.xmm>, reg<x86.ymm>) asm {
+  %19 = neg.gpr32 %p0
+  %20 = neg.gpr32 %p1
+  %21 = neg.gpr32 %p2
+  %22 = neg.gpr32 %p3
+  %23 = vmovd.xmm.gpr32 %19
+  %24 = vpinsrd.xmm %23, %20, 1
+  %25 = vpinsrd.xmm %24, %21, 2
+  %callable = vpinsrd.xmm %25, %22, 3
+  %27 = neg.gpr32 %p3
+  %28 = movsxd.gpr64.gpr32 %27
+  %29 = neg.gpr32 %p2
+  %30 = movsxd.gpr64.gpr32 %29
+  %31 = vmovq.xmm.gpr64 %28
+  %32 = vpinsrq.xmm %31, %30, 1
+  %33 = neg.gpr32 %p1
+  %34 = movsxd.gpr64.gpr32 %33
+  %35 = neg.gpr32 %p0
+  %36 = movsxd.gpr64.gpr32 %35
+  %37 = vmovq.xmm.gpr64 %34
+  %38 = vpinsrq.xmm %37, %36, 1
+  %39 = vxorps.zero.ymm
+  %40 = vinsertf128.ymm.xmm %39, %32, 0
+  %condition = vinsertf128.ymm.xmm %40, %38, 1
+  %selected = vpblendvb.ymm %false_value, %true_value, %condition
+  return %callable, %selected
+}
+
+// ====
+
+// AVX-512 packs dynamic predicate bits into K once and expands to the callable
+// SIMD representation selected by the result boundary.
+x86.target<avx512> @target
+
+func.def target(@target) @construct_avx512_predicate(%p0: i1, %p1: i1, %true_value: vector<2xi64>, %false_value: vector<2xi64>) -> (vector<2xi1>, vector<2xi64>) {
+  %condition = vector.from_elements %p0, %p1 : vector<2xi1>
+  %selected = vector.select %condition, %true_value, %false_value : vector<2xi64>
+  func.return %condition, %selected : vector<2xi1>, vector<2xi64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (i1, i1, vector<2xi64>, vector<2xi64>) -> (vector<2xi1>, vector<2xi64>)}) @construct_avx512_predicate(%p0: reg<x86.gpr32>, %p1: reg<x86.gpr32>, %true_value: reg<x86.xmm>, %false_value: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+  %14 = shl.imm.gpr32 %p1 {shift = 1}
+  %15 = or.gpr32 %p0, %14
+  %16 = movzx.gpr64.gpr32 %15
+  %17 = avx512.kmovq.k.gpr64 %16
+  %condition = avx512.vpmovm2q.xmm.k %17
+  %selected = vpblendvb.xmm %false_value, %true_value, %condition
+  return %condition, %selected
+}
+
+// ====
+
+// A ZMM selection consumes the packed K representation directly.
+x86.target<avx512> @target
+
+func.def target(@target) @construct_avx512_mask(%dynamic: i1, %true_value: vector<8xi64>, %false_value: vector<8xi64>) -> (vector<8xi64>) {
+  %false = scalar.constant 0 : i1
+  %condition = vector.from_elements %dynamic, %false, %false, %false, %false, %false, %false, %false : vector<8xi1>
+  %selected = vector.select %condition, %true_value, %false_value : vector<8xi64>
+  func.return %selected : vector<8xi64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (i1, vector<8xi64>, vector<8xi64>) -> (vector<8xi64>)}) @construct_avx512_mask(%dynamic: reg<x86.gpr32>, %true_value: reg<x86.zmm>, %false_value: reg<x86.zmm>) -> (reg<x86.zmm>) asm {
+  %11 = movzx.gpr64.gpr32 %dynamic
+  %condition = avx512.kmovq.k.gpr64 %11
+  %selected = vpblendmq %condition, %true_value, %false_value
+  return %selected
+}
+
+// ====
+
+// A mixed 64-lane mask folds exact lanes into its two packed halves and only
+// materializes the remaining dynamic lane.
+x86.target<avx512> @target
+
+func.def target(@target) @construct_mixed_i1x64(%dynamic: i1) -> (vector<64xi1>) {
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %result = vector.from_elements %true, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %false, %dynamic : vector<64xi1>
+  func.return %result : vector<64xi1>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (i1) -> (vector<64xi1>)}) @construct_mixed_i1x64(%dynamic: reg<x86.gpr32>) -> (reg<x86.zmm>) asm {
+  %7 = mov.imm32 1
+  %8 = movzx.gpr64.gpr32 %7
+  %9 = shl.imm.gpr32 %dynamic {shift = 31}
+  %10 = movzx.gpr64.gpr32 %9
+  %11 = shl.imm.gpr64 %10 {shift = 32}
+  %12 = or.gpr64 %8, %11
+  %13 = avx512.kmovq.k.gpr64 %12
+  %result = avx512.vpmovm2b.zmm.k %13
+  return %result
+}
+
+// ====
+
+// A fully exact predicate materializes its packed mask directly.
+x86.target<avx512> @target
+
+func.def target(@target) @construct_exact_i1x64() -> (vector<64xi1>) {
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %result = vector.from_elements %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false : vector<64xi1>
+  func.return %result : vector<64xi1>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<64xi1>)}) @construct_exact_i1x64() -> (reg<x86.zmm>) asm {
+  %5 = mov.imm64 6148914691236517205
+  %6 = avx512.kmovq.k.gpr64 %5
+  %result = avx512.vpmovm2b.zmm.k %6
+  return %result
+}
+
+// ====
+
+// A fully exact AVX2 predicate is one retained whole-carrier load.
+x86.target<avx2> @target
+
+func.def target(@target) @construct_exact_avx2_predicates() -> (vector<4xi1>, vector<32xi1>) {
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %small = vector.from_elements %true, %false, %true, %false : vector<4xi1>
+  %wide = vector.from_elements %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false, %true, %false : vector<32xi1>
+  func.return %small, %wide : vector<4xi1>, vector<32xi1>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<4xi1>, vector<32xi1>)}) @construct_exact_avx2_predicates() -> (reg<x86.xmm>, reg<x86.ymm>) asm {
+  %small = avx2.vmovdqu.rodata.xmm @__low_rodata_f83bde47
+  %wide = avx2.vmovdqu.rodata.ymm @__low_rodata_6685843f
+  return %small, %wide
+}
+
+// ====
+
+// Mixed AVX2 chunks retain their exact lanes and insert only the dynamic lane.
+x86.target<avx2> @target
+
+func.def target(@target) @construct_mixed_avx2_i1x4(%dynamic: i1, %true_value: vector<4xi64>, %false_value: vector<4xi64>) -> (vector<4xi64>) {
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %condition = vector.from_elements %true, %false, %dynamic, %false : vector<4xi1>
+  %result = vector.select %condition, %true_value, %false_value : vector<4xi64>
+  func.return %result : vector<4xi64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (i1, vector<4xi64>, vector<4xi64>) -> (vector<4xi64>)}) @construct_mixed_avx2_i1x4(%dynamic: reg<x86.gpr32>, %true_value: reg<x86.ymm>, %false_value: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %12 = avx2.vmovdqu.rodata.xmm @__low_rodata_87c43c07
+  %13 = avx2.vmovdqu.rodata.xmm @__low_rodata_c653280f
+  %14 = neg.gpr32 %dynamic
+  %15 = movsxd.gpr64.gpr32 %14
+  %16 = vpinsrq.xmm %13, %15, 0
+  %17 = vxorps.zero.ymm
+  %18 = vinsertf128.ymm.xmm %17, %12, 0
+  %condition = vinsertf128.ymm.xmm %18, %16, 1
+  %result = vpblendvb.ymm %false_value, %true_value, %condition
+  return %result
+}

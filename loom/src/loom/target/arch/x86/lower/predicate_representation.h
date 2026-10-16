@@ -29,6 +29,11 @@ typedef enum loom_x86_predicate_representation_e {
   LOOM_X86_PREDICATE_REPRESENTATION_SIMD64 = 64,
 } loom_x86_predicate_representation_t;
 
+// Returns the stable callable SIMD representation for a supported predicate
+// lane count.
+loom_low_representation_id_t loom_x86_predicate_callable_representation(
+    uint32_t lane_count);
+
 // Returns true for an AVX2 full-register predicate type and optionally returns
 // its logical lane count.
 bool loom_x86_avx2_predicate_type(loom_type_t source_type,

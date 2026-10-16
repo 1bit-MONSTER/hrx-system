@@ -43,6 +43,28 @@ func.def target(@target) @construct_mixed_lanes(%dynamic: i32) -> (vector<4xi32>
   func.return %result : vector<4xi32>
 }
 
+func.def target(@target) @construct_exact_storage_lanes() -> (vector<16xf8E4M3>, vector<16xf8E5M2>, vector<8xf16>, vector<8xbf16>, vector<4xi32>, vector<2xf64>) {
+  %e4_low = scalar.constant 1.5 : f8E4M3
+  %e4_high = scalar.constant -1.5 : f8E4M3
+  %e4 = vector.from_elements %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high, %e4_low, %e4_high : vector<16xf8E4M3>
+  %e5_low = scalar.constant 1.5 : f8E5M2
+  %e5_high = scalar.constant -1.5 : f8E5M2
+  %e5 = vector.from_elements %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high, %e5_low, %e5_high : vector<16xf8E5M2>
+  %f16_low = scalar.constant 1.5 : f16
+  %f16_high = scalar.constant -2.0 : f16
+  %f16 = vector.from_elements %f16_low, %f16_high, %f16_low, %f16_high, %f16_low, %f16_high, %f16_low, %f16_high : vector<8xf16>
+  %bf16_low = scalar.constant 1.5 : bf16
+  %bf16_high = scalar.constant -2.0 : bf16
+  %bf16 = vector.from_elements %bf16_low, %bf16_high, %bf16_low, %bf16_high, %bf16_low, %bf16_high, %bf16_low, %bf16_high : vector<8xbf16>
+  %i32_low = scalar.constant 305419896 : i32
+  %i32_high = scalar.constant -2 : i32
+  %i32 = vector.from_elements %i32_low, %i32_high, %i32_low, %i32_high : vector<4xi32>
+  %f64_low = scalar.constant 1.5 : f64
+  %f64_high = scalar.constant -2.25 : f64
+  %f64 = vector.from_elements %f64_low, %f64_high : vector<2xf64>
+  func.return %e4, %e5, %f16, %bf16, %i32, %f64 : vector<16xf8E4M3>, vector<16xf8E5M2>, vector<8xf16>, vector<8xbf16>, vector<4xi32>, vector<2xf64>
+}
+
 // ----
 x86.target<avx512> @target
 
@@ -69,11 +91,21 @@ low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({s
   %c1 = mov.imm32 1
   %c2 = mov.imm32 2
   %c3 = mov.imm32 3
-  %18 = vpbroadcastd.xmm %dynamic
+  %18 = vmovd.xmm.gpr32 %dynamic
   %19 = vpinsrd.xmm %18, %c1, 1
   %20 = vpinsrd.xmm %19, %c2, 2
   %result = vpinsrd.xmm %20, %c3, 3
   return %result
+}
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<16xf8E4M3>, vector<16xf8E5M2>, vector<8xf16>, vector<8xbf16>, vector<4xi32>, vector<2xf64>)}) @construct_exact_storage_lanes() -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %e4 = avx2.vmovdqu.rodata.xmm @__low_rodata_5626d74f
+  %e5 = avx2.vmovdqu.rodata.xmm @__low_rodata_5362c38f
+  %f16 = avx2.vmovdqu.rodata.xmm @__low_rodata_3597da8f
+  %bf16 = avx2.vmovdqu.rodata.xmm @__low_rodata_184f736f
+  %i32 = avx2.vmovdqu.rodata.xmm @__low_rodata_9bdcd267
+  %f64 = avx2.vmovdqu.rodata.xmm @__low_rodata_f5738314
+  return %e4, %e5, %f16, %bf16, %i32, %f64
 }
 
 global.rodata.def @__low_rodata_c4c062ff = align(16) bytes("01fe01fe01fe01fe01fe01fe01fe01fe")
@@ -83,3 +115,15 @@ global.rodata.def @__low_rodata_4a75d4f7 = align(16) bytes("0201fdff0201fdff0201
 global.rodata.def @__low_rodata_d73f477f = align(32) bytes("0000c03f000010c00000c03f000010c00000c03f000010c00000c03f000010c0")
 
 global.rodata.def @__low_rodata_f14fa1bf = align(64) bytes("efcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffff")
+
+global.rodata.def @__low_rodata_5626d74f = align(16) bytes("3cbc3cbc3cbc3cbc3cbc3cbc3cbc3cbc")
+
+global.rodata.def @__low_rodata_5362c38f = align(16) bytes("3ebe3ebe3ebe3ebe3ebe3ebe3ebe3ebe")
+
+global.rodata.def @__low_rodata_3597da8f = align(16) bytes("003e00c0003e00c0003e00c0003e00c0")
+
+global.rodata.def @__low_rodata_184f736f = align(16) bytes("c03f00c0c03f00c0c03f00c0c03f00c0")
+
+global.rodata.def @__low_rodata_9bdcd267 = align(16) bytes("78563412feffffff78563412feffffff")
+
+global.rodata.def @__low_rodata_f5738314 = align(16) bytes("000000000000f83f00000000000002c0")
