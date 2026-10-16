@@ -30,6 +30,7 @@ iree_py_library(
         "floating_sign.py",
         "i64.py",
         "index_conversion.py",
+        "integer_count.py",
         "integer_division.py",
         "integer_shift.py",
         "memory.py",
@@ -78,6 +79,45 @@ iree_py_test(
     deps = [
         ":contracts",
         "//loom/py/loom/dialect/vector",
+        "//loom/py/loom/target/contracts",
+    ],
+)
+
+iree_py_test(
+    name = "integer_count_test",
+    size = "small",
+    srcs = [
+        "integer_count_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = [
+        "loom.target.arch.amd.xdna.aie2p.contracts.integer_count_test",
+    ],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":contracts",
+        "//loom/py/loom/target/contracts",
+    ],
+)
+
+iree_py_test(
+    name = "integer_count_exhaustive_test",
+    size = "small",
+    srcs = [
+        "integer_count_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = [
+        "--include-exhaustive",
+        "loom.target.arch.amd.xdna.aie2p.contracts.integer_count_test",
+    ],
+    main = "pytest_style_runner.py",
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = [
+        ":contracts",
         "//loom/py/loom/target/contracts",
     ],
 )

@@ -46,6 +46,9 @@ from loom.target.arch.amd.xdna.aie2p.contracts.index_conversion import (
     AIE2P_INDEX_CONVERSION_RULES,
     AIE2P_VECTOR_INDEX_CONVERSION_RULES,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.integer_count import (
+    AIE2P_INTEGER_COUNT_RULES,
+)
 from loom.target.arch.amd.xdna.aie2p.contracts.integer_division import (
     AIE2P_INTEGER_DIVISION_RULES,
 )
@@ -125,6 +128,7 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
         ),
         AIE2P_BFP_ENCODE_RULE,
         *AIE2P_PACKED_DOT_RULES,
+        *AIE2P_INTEGER_COUNT_RULES,
         *AIE2P_INTEGER_DIVISION_RULES,
         *AIE2P_REDUCTION_RULES,
         *AIE2P_STRUCTURAL_RULES,
@@ -218,17 +222,6 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
         core_rules._rotate_rule(index.index_rotli, core_rules._INDEX, rotate_left=True),
         core_rules._rotate_rule(
             index.index_rotri, core_rules._INDEX, rotate_left=False
-        ),
-        core_rules._unary_rule(
-            index.index_ctlzi,
-            core_rules._INDEX,
-            "amd.xdna.aie2p.clz.i32",
-        ),
-        core_rules._count_trailing_zeros_rule(index.index_cttzi, core_rules._INDEX),
-        core_rules._unary_rule(
-            index.index_ctpopi,
-            core_rules._INDEX,
-            "amd.xdna.aie2p.popcount.i32",
         ),
         *(
             core_rules._compare_rule(
@@ -1129,19 +1122,6 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
             scalar_bitwise.scalar_rotri,
             core_rules._I32,
             rotate_left=False,
-        ),
-        core_rules._unary_rule(
-            scalar_bitwise.scalar_ctlzi,
-            core_rules._I32,
-            "amd.xdna.aie2p.clz.i32",
-        ),
-        core_rules._count_trailing_zeros_rule(
-            scalar_bitwise.scalar_cttzi, core_rules._I32
-        ),
-        core_rules._unary_rule(
-            scalar_bitwise.scalar_ctpopi,
-            core_rules._I32,
-            "amd.xdna.aie2p.popcount.i32",
         ),
         core_rules._narrow_left_shift_rule(
             core_rules._I8,

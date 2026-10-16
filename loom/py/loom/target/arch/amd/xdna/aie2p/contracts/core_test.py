@@ -594,6 +594,12 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         rule
         for rule in rules
         if rule.priority == 0
+        and any(
+            guard.field == "result"
+            and guard.type_pattern is not None
+            and guard.type_pattern.element == "i32"
+            for guard in rule.guards
+        )
         and rule.source_op
         in (
             scalar_arithmetic.scalar_divui,
@@ -606,9 +612,6 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
             scalar_arithmetic.scalar_fmai,
             scalar_bitwise.scalar_rotli,
             scalar_bitwise.scalar_rotri,
-            scalar_bitwise.scalar_ctlzi,
-            scalar_bitwise.scalar_cttzi,
-            scalar_bitwise.scalar_ctpopi,
         )
     ]
     assert [rule.descriptor.key for rule in scalar_address_alu_rules] == [
@@ -622,9 +625,6 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         "amd.xdna.aie2p.madd.i32",
         "amd.xdna.aie2p.or.i32",
         "amd.xdna.aie2p.or.i32",
-        "amd.xdna.aie2p.clz.i32",
-        "amd.xdna.aie2p.select.zero.i32",
-        "amd.xdna.aie2p.popcount.i32",
     ]
     assert scalar_address_alu_rules[7].emit[0].copy_operands == ("a0",)
 
