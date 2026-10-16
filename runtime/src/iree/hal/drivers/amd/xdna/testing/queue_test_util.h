@@ -239,12 +239,14 @@ struct NativeProvider {
                const amdf_xdna_result_buffer_binding_t* binding) {
     auto* self = reinterpret_cast<NativeProvider*>(context);
     EXPECT_FALSE(self->result.binding.memory);
+    ++self->result.attaches;
+    if (self->result.unsupported_attachment) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
     self->result.binding = *binding;
     self->result.count = 0;
-    ++self->result.attaches;
-    return self->result.fail_control == 1
-               ? amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL)
-               : AMDF_STATUS_OK;
+    return self->result.fail_control == 1 ? self->result.failure_status
+                                          : AMDF_STATUS_OK;
   }
   static amdf_status_t AMDF_CALL
   ResultCollect(amdf_xdna_context_t* context,
@@ -260,9 +262,8 @@ struct NativeProvider {
       auto* memory = reinterpret_cast<Memory*>(binding->memory);
       memory->contents[binding->byte_offset] = 0;
     }
-    return self->result.fail_control == 2
-               ? amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL)
-               : AMDF_STATUS_OK;
+    return self->result.fail_control == 2 ? self->result.failure_status
+                                          : AMDF_STATUS_OK;
   }
   static amdf_status_t AMDF_CALL
   ResultDetach(amdf_xdna_context_t* context,
@@ -271,7 +272,7 @@ struct NativeProvider {
     EXPECT_EQ(binding->memory, self->result.binding.memory);
     ++self->result.detaches;
     if (self->result.fail_control == 3) {
-      return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+      return self->result.failure_status;
     }
     self->result.binding = {};
     return AMDF_STATUS_OK;
@@ -733,6 +734,11 @@ struct NativeProvider {
     uint32_t detaches = 0;
     // Native control to fail ambiguously: 1 attach, 2 collect, or 3 detach.
     uint32_t fail_control = 0;
+    // Failure reported after the selected control may have made progress.
+    amdf_status_t failure_status =
+        amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+    // Reject attachment without establishing any native binding.
+    bool unsupported_attachment = false;
     // Collection supplies a malformed marker when true.
     bool corrupt = false;
   } result;

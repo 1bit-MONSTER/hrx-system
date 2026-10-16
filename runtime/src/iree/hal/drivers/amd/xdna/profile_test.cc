@@ -732,7 +732,83 @@ TEST(XdnaProfileTest, MetadataOverflowPreservesRetainedNames) {
   EXPECT_EQ(harness.native.result.collects, 0u);
 }
 
-static void RunAmbiguousResultControlChild(uint32_t control) {
+TEST(XdnaProfileTest,
+     UnsupportedAttachmentReleasesStorageAndKeepsDeviceUsable) {
+  for (bool single_aperture : {false, true}) {
+    SCOPED_TRACE(single_aperture);
+    HostAllocationCounters allocations;
+    {
+      ProfileSink sink;
+      QueueHarness harness;
+      harness.native.enforce_single_command_memory = single_aperture;
+      harness.native.result.unsupported_attachment = true;
+      ASSERT_NO_FATAL_FAILURE(
+          harness.Initialize(TrackingAllocator(&allocations)));
+      ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
+      const iree_hal_device_profiling_options_t options = {
+          .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
+          .sink = sink.base(),
+      };
+      int64_t live_allocations = 0;
+      size_t live_memories = 0;
+      for (uint32_t attempt = 0; attempt < 3; ++attempt) {
+        IREE_EXPECT_STATUS_IS(
+            IREE_STATUS_UNIMPLEMENTED,
+            iree_hal_device_profiling_begin(harness.device, &options));
+        EXPECT_FALSE(harness.context->result_buffer_retained);
+        EXPECT_FALSE(harness.native.result.binding.memory);
+        if (attempt == 0) {
+          // Range mode can warm the reusable command arena on first use.
+          live_allocations = allocations.live_allocations.load();
+          live_memories = harness.native.live_memories;
+        } else {
+          EXPECT_EQ(allocations.live_allocations.load(), live_allocations);
+          EXPECT_EQ(harness.native.live_memories, live_memories);
+        }
+      }
+      EXPECT_EQ(harness.native.result.collects, 0u);
+      EXPECT_EQ(harness.native.result.detaches, 0u);
+      EXPECT_EQ(harness.diagnostic_count, 0u);
+      iree_hal_executable_t* executable = nullptr;
+      iree_hal_executable_function_t function;
+      ASSERT_NO_FATAL_FAILURE(
+          harness.LoadExecutable(MeasuredFixture(), &executable, &function));
+      iree_hal_buffer_t* buffer = nullptr;
+      ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
+      const auto binding = iree_hal_make_buffer_ref(buffer, 0, 64);
+      uint64_t value = 1;
+      IREE_ASSERT_OK(iree_hal_queue_dispatch(
+          harness.queue, {}, {1, &harness.done, &value}, executable, function,
+          iree_hal_make_static_dispatch_config(1, 1, 1), {}, {1, &binding}, {},
+          0));
+      ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, 1));
+
+      harness.native.result.unsupported_attachment = false;
+      IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
+      value = 2;
+      IREE_ASSERT_OK(iree_hal_queue_dispatch(
+          harness.queue, {}, {1, &harness.done, &value}, executable, function,
+          iree_hal_make_static_dispatch_config(1, 1, 1), {}, {1, &binding}, {},
+          0));
+      iree_hal_executable_release(executable);
+      iree_hal_buffer_release(buffer);
+      ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
+      IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
+      EXPECT_EQ(sink.samples.size(), 1u);
+      EXPECT_EQ(harness.native.result.attaches, 4u);
+      EXPECT_EQ(harness.native.result.collects, 1u);
+      EXPECT_EQ(harness.native.result.detaches, 1u);
+      harness.ReleaseDevice();
+      ASSERT_NO_FATAL_FAILURE(harness.PollUntilDeviceDestroyed());
+      EXPECT_EQ(harness.native.live_memories, 0u);
+    }
+    EXPECT_EQ(allocations.live_allocations.load(), 0);
+  }
+}
+
+static void RunAmbiguousResultControlChild(uint32_t control,
+                                           amdf_status_t native_status,
+                                           iree_status_code_t expected_status) {
   ProfileSink sink;
   QueueHarness harness;
   struct AllocationWatch {
@@ -761,17 +837,17 @@ static void RunAmbiguousResultControlChild(uint32_t control) {
     ASSERT_NO_FATAL_FAILURE(harness.Initialize(allocator));
     watch.pointer = harness.queue;
     harness.native.result.fail_control = control;
+    harness.native.result.failure_status = native_status;
     const iree_hal_device_profiling_options_t options = {
         .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
         .sink = sink.base(),
     };
     if (control == 1) {
-      IREE_EXPECT_STATUS_IS(
-          IREE_STATUS_INTERNAL,
-          iree_hal_device_profiling_begin(harness.device, &options));
+      IREE_EXPECT_STATUS_IS(expected_status, iree_hal_device_profiling_begin(
+                                                 harness.device, &options));
     } else {
       IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
-      IREE_EXPECT_STATUS_IS(IREE_STATUS_INTERNAL,
+      IREE_EXPECT_STATUS_IS(expected_status,
                             iree_hal_device_profiling_end(harness.device));
     }
     EXPECT_TRUE(harness.context->result_buffer_retained);
@@ -797,7 +873,15 @@ static void RunAmbiguousResultControlChild(uint32_t control) {
 
 TEST(XdnaProfileDeathTest, AmbiguousControlsRetainBackingAndParents) {
   for (uint32_t control : {1u, 2u, 3u}) {
-    EXPECT_EXIT(RunAmbiguousResultControlChild(control),
+    EXPECT_EXIT(RunAmbiguousResultControlChild(
+                    control, amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL),
+                    IREE_STATUS_INTERNAL),
+                ::testing::ExitedWithCode(0), "");
+  }
+  for (uint32_t control : {2u, 3u}) {
+    EXPECT_EXIT(RunAmbiguousResultControlChild(
+                    control, amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED),
+                    IREE_STATUS_UNIMPLEMENTED),
                 ::testing::ExitedWithCode(0), "");
   }
 }

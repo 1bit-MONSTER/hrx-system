@@ -219,11 +219,16 @@ static iree_status_t iree_hal_amd_xdna_profile_counters_allocate_result(
           counters->mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
           counters->binding.byte_offset, length),
       "host_mapping_cache_control(result clear)"));
+  const amdf_status_t status = context->xdna->context_attach_result_buffer(
+      context->handle, &counters->binding);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    // Initial attachment was rejected before native ownership changed. The
+    // ordinary failure cleanup can release this previously unbound destination.
+    return IREE_HAL_AMD_STATUS_FROM_AMDF(status,
+                                         "xdna.context_attach_result_buffer");
+  }
   return iree_hal_amd_xdna_profile_counters_control_status(
-      counters,
-      context->xdna->context_attach_result_buffer(context->handle,
-                                                  &counters->binding),
-      "xdna.context_attach_result_buffer");
+      counters, status, "xdna.context_attach_result_buffer");
 }
 
 iree_status_t iree_hal_amd_xdna_profile_counters_begin(
