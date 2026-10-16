@@ -337,6 +337,17 @@ iree_status_t loom_serve_text_state_deinitialize(
   return status;
 }
 
+// Successful model readiness includes the native signal; join its final access
+// before reusing the state-owned operation slot or editing its slabs again.
+// A prefix pin can leave completed backing here until the next capacity change.
+static void loom_serve_text_complete_backing(loom_serve_text_state_t* state) {
+  const bool complete =
+      loom_serve_memory_operation_is_complete(state->memory.backing.operation);
+  IREE_ASSERT(complete);
+  loom_serve_memory_operation_free(state->memory.backing.operation);
+  state->memory.backing.operation = NULL;
+}
+
 // Reclaims only unowned physical slabs. The map need not be compact: a denied
 // relocation must still be able to release dead backing under pressure.
 static iree_status_t loom_serve_text_trim_backing(
@@ -500,6 +511,7 @@ static void loom_serve_text_plan_compaction_copies(
 iree_status_t loom_serve_text_state_submit_trim(
     loom_serve_text_state_t* state, loom_serve_text_trim_result_t* out_result) {
   *out_result = (loom_serve_text_trim_result_t){0};
+  loom_serve_text_complete_backing(state);
   state->memory.trim.released_before = state->memory.statistics.released_bytes;
   state->memory.trim.phase = LOOM_SERVE_TEXT_TRIM_COMPLETE;
   if (!state->memory.buffers[1]) {
@@ -588,16 +600,6 @@ static iree_status_t loom_serve_text_submit_compaction(
   }
   iree_allocator_free(state->host_allocator, copy_destinations);
   return status;
-}
-
-// Successful model readiness includes the native signal; join its final access
-// before reusing the state-owned operation slot or editing its slabs again.
-static void loom_serve_text_complete_backing(loom_serve_text_state_t* state) {
-  const bool complete =
-      loom_serve_memory_operation_is_complete(state->memory.backing.operation);
-  IREE_ASSERT(complete);
-  loom_serve_memory_operation_free(state->memory.backing.operation);
-  state->memory.backing.operation = NULL;
 }
 
 iree_status_t loom_serve_text_state_complete_trim(
@@ -1325,6 +1327,7 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
     bool* out_reserved) {
   *out_reserved = false;
   loom_serve_text_state_t* state = row->owner;
+  loom_serve_text_complete_backing(state);
   const iree_host_size_t index = (iree_host_size_t)(row - state->rows);
   const iree_host_size_t position = checkpoint ? checkpoint->position
                                     : mode == LOOM_SERVE_TEXT_RESERVE_CONTINUE

@@ -26,6 +26,97 @@ class ElasticTextServiceTest : public SourceTextServiceTest {
     return false;
   }
 
+  void CheckPrefixBackingRetirement(bool trim_first) {
+    const iree_hal_physical_memory_params_t parameters = {
+        .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+    iree_device_size_t minimum = 0;
+    iree_device_size_t slab_size = 0;
+    IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
+        iree_hal_device_allocator(loom_serve_device_handle(device_)),
+        parameters, &minimum, &slab_size));
+    auto options = ModelOptions();
+    options.context_capacity = slab_size / 8;
+    options.pool_capacity = 4 * options.context_capacity;
+    loom_serve_text_model_t* source = nullptr;
+    IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                  host_allocator_, &source));
+    const auto release_model = [](loom_serve_text_model_t* model) {
+      IREE_EXPECT_OK(loom_serve_text_model_free(model));
+    };
+    const std::unique_ptr<loom_serve_text_model_t, decltype(release_model)>
+        owner(source, release_model);
+    // The fixture places four 768-byte private rows and ten 256-byte recurrent
+    // slots before its four-byte-per-token KV plane. Fill exactly one slab;
+    // a new COW tail must acquire native backing, not reuse an existing page.
+    const size_t private_bytes = 4 * 768 + 10 * 256;
+    const size_t extents[] = {
+        4, options.context_capacity,
+        (slab_size - private_bytes) / 4 - 4 - options.context_capacity};
+    for (size_t i = 0; i < IREE_ARRAYSIZE(extents); ++i) {
+      bool admitted = false;
+      IREE_ASSERT_OK(loom_serve_text_row_try_reserve(
+          loom_serve_text_model_row(source, i), LOOM_SERVE_TEXT_RESERVE_FRESH,
+          nullptr, extents[i], &admitted));
+      ASSERT_TRUE(admitted);
+    }
+    auto* row = loom_serve_text_model_row(source, 0);
+    auto* warm = loom_serve_text_model_row(model_, 0);
+    const int32_t tokens[] = {0, 1, 2};
+    IREE_ASSERT_OK(
+        loom_serve_text_row_prefill(row, IREE_ARRAYSIZE(tokens), tokens));
+    IREE_ASSERT_OK(
+        loom_serve_text_row_prefill(warm, IREE_ARRAYSIZE(tokens), tokens));
+    ASSERT_EQ(loom_serve_text_model_memory_statistics(source).committed_bytes,
+              slab_size);
+    loom_serve_text_checkpoint_t* checkpoint = nullptr;
+    loom_serve_execution_frontier_t frontier;
+    {
+      loom_serve::testing::MaintenanceGate gate(
+          loom_serve_device_storage_pool(device_)->maintenance);
+      IREE_ASSERT_OK(
+          loom_serve_text_row_submit_pin(row, &checkpoint, &frontier));
+      ASSERT_NE(checkpoint, nullptr);
+      EXPECT_EQ(loom_serve_text_model_memory_statistics(source).pending_bytes,
+                slab_size);
+      const int32_t token = 1;
+      IREE_ASSERT_OK(loom_serve_text_row_prefill(warm, 1, &token));
+      Oracle peer;
+      peer.Consume("abxb");
+      EXPECT_EQ(loom_serve_text_row_token(warm), peer.Predict());
+    }
+    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+        {IREE_ARRAYSIZE(frontier.semaphores), frontier.semaphores,
+         frontier.values},
+        iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+    if (trim_first) {
+      loom_serve_text_trim_result_t result;
+      IREE_ASSERT_OK(loom_serve_text_model_trim(source, &result));
+    }
+    // Reuse the state-owned operation slot without an intervening epoch. A
+    // second pin must preserve the authoritative reader of the first fork.
+    loom_serve_text_checkpoint_t* alias = nullptr;
+    IREE_ASSERT_OK(loom_serve_text_row_try_pin(row, &alias));
+    ASSERT_NE(alias, nullptr);
+    auto* fork = loom_serve_text_model_row(source, 3);
+    bool admitted = false;
+    IREE_ASSERT_OK(loom_serve_text_row_try_reserve(
+        fork, LOOM_SERVE_TEXT_RESERVE_CHECKPOINT, alias, 8, &admitted));
+    ASSERT_TRUE(admitted);
+    loom_serve_text_checkpoint_release(alias);
+    Oracle reference;
+    reference.Consume("abx");
+    const int32_t next = 0;
+    for (auto* branch : {row, fork}) {
+      IREE_ASSERT_OK(loom_serve_text_row_prefill(branch, 1, &next));
+      Oracle continued = reference;
+      continued.Consume(next);
+      EXPECT_EQ(loom_serve_text_row_token(branch), continued.Predict());
+    }
+    loom_serve_text_checkpoint_release(checkpoint);
+  }
+
   void CheckColdStateAdmission(bool cancel) {
     StartManaged();
     for (const char* name : {"fixture-text", "cold"}) {
@@ -93,6 +184,15 @@ class ElasticTextServiceTest : public SourceTextServiceTest {
     EXPECT_FALSE(HasPendingBacking(Read(Send("", "", "/v1/status", "GET"))));
   }
 };
+
+TEST_F(ElasticTextServiceTest,
+       PrefixNativeBackingRetiresBeforeNextReservation) {
+  CheckPrefixBackingRetirement(/*trim_first=*/false);
+}
+
+TEST_F(ElasticTextServiceTest, PrefixNativeBackingRetiresBeforeTrim) {
+  CheckPrefixBackingRetirement(/*trim_first=*/true);
+}
 
 TEST_F(ElasticTextServiceTest,
        ColdStateCommitDoesNotBlockWarmHttpInferenceOnOneWorker) {
