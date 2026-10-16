@@ -395,15 +395,12 @@ iree_status_t iree_benchmark_loom_write_hal_context_identity_fields_json(
 
 iree_status_t iree_benchmark_loom_append_device_row(
     const iree_benchmark_loom_run_identity_t* run,
-    iree_benchmark_loom_hal_context_t* context,
+    const iree_benchmark_loom_hal_context_t* context,
     iree_benchmark_loom_device_row_state_t* row_state,
     iree_string_builder_t* device_output) {
   if (row_state->appended) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(
-      loom_run_hal_testbench_context_ensure_runtime(&context->execution));
-
   loom_output_stream_t stream;
   loom_output_stream_for_builder(device_output, &stream);
   loom_json_object_writer_t object;

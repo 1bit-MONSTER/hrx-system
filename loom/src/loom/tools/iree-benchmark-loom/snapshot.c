@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include "loom/tooling/execution/benchmark.h"
-#include "loom/tooling/execution/hal/testbench_actual.h"
 #include "loom/tooling/io/file.h"
 #include "loom/tools/iree-benchmark-loom/report.h"
 #include "loom/util/json.h"
@@ -261,8 +260,6 @@ static iree_status_t iree_benchmark_loom_snapshot_append_device(
     iree_benchmark_loom_snapshot_state_t* state,
     const iree_benchmark_loom_device_event_t* event) {
   iree_string_builder_reset(&state->device_json);
-  IREE_RETURN_IF_ERROR(loom_run_hal_testbench_context_ensure_runtime(
-      &event->context->execution));
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&state->device_json, &stream);
   loom_json_object_writer_t object;

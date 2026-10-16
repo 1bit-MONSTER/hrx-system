@@ -2,6 +2,59 @@
   "version": 1,
   "cases": [
     {
+      "name": "plans scenario dispatches in a snapshot without a device",
+      "run": {
+        "tool": "iree-benchmark-loom",
+        "args": [
+          "{srcdir}/testdata/dispatch_benchmarks.loom",
+          "--benchmark=@increment_scenario_latency",
+          "--dry-run"
+        ]
+      },
+      "stdout": {
+        "contains": {
+          "unordered": [
+            "\"dry_run\":true",
+            "\"device\":{\"device_uri\":\"\",\"driver\":\"\",\"state\":\"planned\"}",
+            "\"work_item_count\":2",
+            "\"measure\":\"dispatch_complete\""
+          ]
+        },
+        "not_contains": [
+          "\"device_spec\"",
+          "\"state\":\"created\""
+        ]
+      }
+    },
+    {
+      "name": "plans case dispatches as JSONL without a device",
+      "run": {
+        "tool": "iree-benchmark-loom",
+        "args": [
+          "{srcdir}/testdata/dispatch_benchmarks.loom",
+          "--benchmark=@increment_case_latency",
+          "--measure=dispatch_complete",
+          "--output-format=jsonl",
+          "--dry-run"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"row\":\"run\"",
+          "\"row\":\"plan\"",
+          "\"measure\":\"dispatch_complete\"",
+          "\"row\":\"device\"",
+          "\"state\":\"planned\"",
+          "\"row\":\"summary\""
+        ],
+        "not_contains": [
+          "\"row\":\"compile\"",
+          "\"row\":\"sample\"",
+          "\"device_spec\""
+        ]
+      }
+    },
+    {
       "name": "writes dry-run output file",
       "run": {
         "tool": "iree-benchmark-loom",
