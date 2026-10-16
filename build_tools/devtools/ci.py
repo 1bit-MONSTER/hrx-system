@@ -211,10 +211,26 @@ def platform_coverage_build_steps(step: CiStep) -> list[CiStep]:
 
 
 def codec_options(build_system: str) -> tuple[str, ...]:
-    codecs = ci_config.OPTIONAL_IMAGE_CODECS if platform_coverage_enabled() else ()
+    enabled = platform_coverage_enabled()
+    groups = (
+        ("image", ci_config.OPTIONAL_IMAGE_CODECS),
+        ("audio", ci_config.OPTIONAL_AUDIO_CODECS),
+    )
     if build_system == "cmake":
-        return ("-DLOOM_SERVE_IMAGE_CODECS=" + ";".join(codecs),)
-    return ("--//loom/config/serve:image_codecs=" + ",".join(codecs),)
+        return tuple(
+            "-DLOOM_SERVE_"
+            + kind.upper()
+            + "_CODECS="
+            + ";".join(codecs if enabled else ())
+            for kind, codecs in groups
+        )
+    return tuple(
+        "--//loom/config/serve:"
+        + kind
+        + "_codecs="
+        + ",".join(codecs if enabled else ())
+        for kind, codecs in groups
+    )
 
 
 # Bazel test actions do not inherit the client environment. Preserve the

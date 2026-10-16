@@ -171,6 +171,7 @@ class CiTest(unittest.TestCase):
                     mock.patch.object(
                         ci_config, "OPTIONAL_IMAGE_CODECS", ("first", "second")
                     ),
+                    mock.patch.object(ci_config, "OPTIONAL_AUDIO_CODECS", ("voice",)),
                 ):
                     steps = (
                         ci.bazel_configure_step(),
@@ -180,16 +181,22 @@ class CiTest(unittest.TestCase):
                     )
                     cmake_step = ci.cmake_configure_step("example")
                 for step in steps:
-                    self.assertEqual(
-                        [
-                            arg
-                            for arg in step.argv
-                            if arg.startswith("--//loom/config/serve:image_codecs=")
-                        ],
-                        ["--//loom/config/serve:image_codecs=" + bazel_list],
-                    )
+                    for kind, codecs in (
+                        ("image", bazel_list),
+                        ("audio", "voice" if selection == "1" else ""),
+                    ):
+                        prefix = "--//loom/config/serve:" + kind + "_codecs="
+                        self.assertEqual(
+                            [arg for arg in step.argv if arg.startswith(prefix)],
+                            [prefix + codecs],
+                        )
                 self.assertIn(
                     "-DLOOM_SERVE_IMAGE_CODECS=" + cmake_list, cmake_step.argv
+                )
+                self.assertIn(
+                    "-DLOOM_SERVE_AUDIO_CODECS="
+                    + ("voice" if selection == "1" else ""),
+                    cmake_step.argv,
                 )
                 self.assertEqual(
                     shlex.split(cmake_step.command_line()), list(cmake_step.argv)
