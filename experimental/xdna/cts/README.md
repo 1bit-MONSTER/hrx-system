@@ -74,21 +74,6 @@ defines the optimized intervals.
 
 ## Compiler execution cases
 
-`read_only_data_npu2_test` checks that immutable bytes retained by a worker are
-initialized in tile-local data memory before core activation. One nonzero table
-word contributes to the native result; an independent scalar oracle checks that
-result, the unchanged input and both binding guards. The table's core-visible
-self aperture differs from its owner-local initialization address, so the case
-also covers the address-space boundary between relocation and product loading.
-
-`immutable_gather_npu2_test` checks 16, 32 and 64-bit parallel lookup from one
-worker-local table. Four boundary records cover both 32-byte table blocks,
-repeated and reversed indices, and ignored high index bits. BF16 and F64 values
-are checked as raw bits, while packed BF16 pairs feed a dot with an independent
-arithmetic oracle. The compile report proves that each native lookup plan was
-selected without spills and remained within code and bank capacity; unchanged
-input and output guards bracket the device results.
-
 `multicast_npu2_test` distributes eight A streams to two consumers each and two
 distinct B streams to eight consumers each. Sixteen workers span eight columns
 and two rows, retaining separate capacity-two or capacity-three receiver rings.
