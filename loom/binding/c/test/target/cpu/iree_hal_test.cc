@@ -446,6 +446,77 @@ func.def public @dot4i_s8s8_256(%lhs: vector<32xi8>, %rhs: vector<32xi8>, %acc: 
             0);
 }
 
+TEST(LoomcCpuIreeHalTargetTest, CompilesBfloatBroadcastWithoutNeConvert) {
+  const iree_cpu_data_t cpu_data = {
+      .architecture = IREE_CPU_ARCHITECTURE_X86_64,
+      .fields = {IREE_CPU_DATA0_X86_64_AVX | IREE_CPU_DATA0_X86_64_FMA |
+                 IREE_CPU_DATA0_X86_64_AVX2},
+  };
+  DeviceSpecPtr device_spec;
+  IREE_ASSERT_OK(CreateCpuDeviceSpec(true, true, &device_spec, &cpu_data));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(device_spec.get(), &device);
+  TargetEnvironmentPtr target_environment = CreateConfiguredTargetEnvironment();
+  loomc_result_t* selection_result = nullptr;
+  TargetProfilePtr profile =
+      SelectCpuTarget(target_environment.get(), &device, &selection_result);
+  ResultPtr selection_result_ptr(selection_result);
+  ASSERT_TRUE(loomc_result_succeeded(selection_result_ptr.get()));
+  ASSERT_NE(profile.get(), nullptr);
+  ContextPtr context = CreateConfiguredContext(target_environment.get());
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  for (int lanes : {4, 8}) {
+    SCOPED_TRACE(lanes);
+    const std::string vector_type = "vector<" + std::to_string(lanes) + "xf32>";
+    const std::string source =
+        "func.def public @broadcast(%input: buffer) -> (" + vector_type +
+        ") {\n"
+        "  %base = index.constant 0 : offset\n"
+        "  %source = buffer.view %input[%base] : buffer -> view<1xbf16>\n"
+        "  %narrow = view.load %source[0] : view<1xbf16> -> bf16\n"
+        "  %wide = scalar.extf<daz> %narrow : bf16 to f32\n"
+        "  %result = vector.splat %wide : " +
+        vector_type +
+        "\n"
+        "  func.return %result : " +
+        vector_type + "\n}\n";
+    ModulePtr module =
+        ParseModule(context.get(), workspace.get(), source.c_str());
+    const loomc_string_view_t root = loomc_make_cstring_view("broadcast");
+    const loomc_emit_options_t emit_options = {
+        .type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+        .structure_size = sizeof(emit_options),
+        .artifact_format = loomc_make_cstring_view("x86-elf"),
+        .artifact_flags = LOOMC_EMIT_ARTIFACT_FLAG_PRIMARY,
+    };
+    const loomc_compile_artifact_options_t compile_options = {
+        .type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
+        .structure_size = sizeof(compile_options),
+        .roots = &root,
+        .root_count = 1,
+        .target_profile = profile.get(),
+        .emit_options = &emit_options,
+    };
+    loomc_result_t* compile_result = nullptr;
+    LOOMC_ASSERT_OK(loomc_compile_artifact(
+        compiler.get(), workspace.get(), nullptr, module.get(),
+        &compile_options, loomc_allocator_system(), &compile_result));
+    ResultPtr result(compile_result);
+    if (!loomc_result_succeeded(result.get())) {
+      for (loomc_host_size_t i = 0;
+           i < loomc_result_diagnostic_count(result.get()); ++i) {
+        ADD_FAILURE() << ToString(
+            loomc_result_diagnostic_at(result.get(), i)->message);
+      }
+    }
+    ASSERT_TRUE(loomc_result_succeeded(result.get()));
+    ASSERT_NE(
+        FindArtifact(result.get(), LOOMC_ARTIFACT_KIND_EXECUTABLE, "x86-elf"),
+        nullptr);
+  }
+}
+
 TEST(LoomcCpuIreeHalTargetTest, ReportsMissingLoaderAsTargetDiagnostic) {
   DeviceSpecPtr device_spec;
   IREE_ASSERT_OK(CreateCpuDeviceSpec(/*include_cpu_facet=*/true,

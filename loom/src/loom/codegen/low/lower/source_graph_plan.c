@@ -52,16 +52,34 @@ struct loom_low_lower_source_graph_candidate_t {
   uint32_t top_node_index;
   // Number of trailing node_indices entries.
   uint8_t node_count;
+  // True when the selected alternative is enabled or fixed, not a fallback.
+  bool selected_enabled;
   // Caller-defined identities for every covered node, with the rule root first.
   // The node_count - 1 edges immediately follow this array.
   uint32_t node_indices[];
 };
 
-// Packs the lexicographic score as required-node count followed by priority.
-// Candidate admission bounds both components below UINT32_MAX.
-typedef uint64_t loom_low_lower_source_graph_score_t;
+// Candidate admission bounds every component below UINT32_MAX.
+typedef struct loom_low_lower_source_graph_score_t {
+  // Covered nodes without an active singleton alternative.
+  uint32_t required_count;
+  // Covered nodes whose selected alternative does not require a fallback.
+  uint32_t enabled_count;
+  // Sum of authored priority over covered nodes.
+  uint32_t priority;
+} loom_low_lower_source_graph_score_t;
 
-#define LOOM_LOW_LOWER_SOURCE_GRAPH_REQUIRED_SCORE (UINT64_C(1) << 32)
+static bool loom_low_lower_source_graph_score_greater_equal(
+    loom_low_lower_source_graph_score_t lhs,
+    loom_low_lower_source_graph_score_t rhs) {
+  if (lhs.required_count != rhs.required_count) {
+    return lhs.required_count > rhs.required_count;
+  }
+  if (lhs.enabled_count != rhs.enabled_count) {
+    return lhs.enabled_count > rhs.enabled_count;
+  }
+  return lhs.priority >= rhs.priority;
+}
 
 struct loom_low_lower_source_graph_plan_t {
   // Arena owning this plan and every candidate.
@@ -488,21 +506,26 @@ static loom_low_lower_source_graph_score_t
 loom_low_lower_source_graph_candidate_score(
     const loom_low_lower_source_graph_plan_t* plan,
     const loom_low_lower_source_graph_candidate_t* candidate) {
-  loom_low_lower_source_graph_score_t score =
-      (uint32_t)candidate->phase.selection.alternative->priority *
-      candidate->node_count;
+  loom_low_lower_source_graph_score_t score = {
+      .enabled_count = candidate->selected_enabled ? candidate->node_count : 0,
+      .priority = (uint32_t)candidate->phase.selection.alternative->priority *
+                  candidate->node_count,
+  };
   for (uint8_t i = 0; i < candidate->node_count; ++i) {
     const uint32_t node_index = candidate->node_indices[i];
     if (!plan->singleton_nodes[node_index]) {
-      score += LOOM_LOW_LOWER_SOURCE_GRAPH_REQUIRED_SCORE;
+      ++score.required_count;
     }
-    score += plan->baseline_scores[node_index];
+    score.required_count += plan->baseline_scores[node_index].required_count;
+    score.enabled_count += plan->baseline_scores[node_index].enabled_count;
+    score.priority += plan->baseline_scores[node_index].priority;
   }
   for (uint8_t i = 0; i < candidate->node_count; ++i) {
     const uint32_t node_index = candidate->node_indices[i];
     if (node_index != candidate->top_node_index) {
-      IREE_ASSERT_GE(score, plan->best_scores[node_index]);
-      score -= plan->best_scores[node_index];
+      score.required_count -= plan->best_scores[node_index].required_count;
+      score.enabled_count -= plan->best_scores[node_index].enabled_count;
+      score.priority -= plan->best_scores[node_index].priority;
     }
   }
   return score;
@@ -556,6 +579,8 @@ static void loom_low_lower_source_graph_plan_resolve_alternatives(
     if (candidate->phase.selection.alternative == NULL) {
       continue;
     }
+    candidate->selected_enabled =
+        selected_state != LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK;
     if (candidate->node_count == 1) {
       plan->singleton_nodes[candidate->node_indices[0]] =
           selected_state == LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED ? 2
@@ -602,14 +627,15 @@ iree_status_t loom_low_lower_source_graph_plan_resolve(
   for (iree_host_size_t i = 0; i < plan->traversal_count; ++i) {
     const uint32_t node_index = plan->traversal_queue[i];
     bool has_candidate = false;
-    loom_low_lower_source_graph_score_t best_score = 0;
+    loom_low_lower_source_graph_score_t best_score = {0};
     loom_low_lower_source_graph_candidate_t* best_candidate = NULL;
     for (loom_low_lower_source_graph_candidate_t* candidate =
              plan->top_candidates[node_index];
          candidate != NULL; candidate = candidate->phase.selection.next) {
       const loom_low_lower_source_graph_score_t candidate_score =
           loom_low_lower_source_graph_candidate_score(plan, candidate);
-      if (!has_candidate || candidate_score >= best_score) {
+      if (!has_candidate || loom_low_lower_source_graph_score_greater_equal(
+                                candidate_score, best_score)) {
         has_candidate = true;
         best_score = candidate_score;
         best_candidate = candidate;
@@ -617,7 +643,8 @@ iree_status_t loom_low_lower_source_graph_plan_resolve(
     }
     const loom_low_lower_source_graph_score_t baseline_score =
         plan->baseline_scores[node_index];
-    if (!has_candidate || baseline_score > best_score) {
+    if (!has_candidate || !loom_low_lower_source_graph_score_greater_equal(
+                              best_score, baseline_score)) {
       best_score = baseline_score;
       best_candidate = NULL;
     }
@@ -626,7 +653,11 @@ iree_status_t loom_low_lower_source_graph_plan_resolve(
 
     const uint32_t tree_parent = plan->tree_parents[node_index];
     if (tree_parent != LOOM_LOW_LOWER_SOURCE_GRAPH_NODE_INVALID) {
-      plan->baseline_scores[tree_parent] += best_score;
+      plan->baseline_scores[tree_parent].required_count +=
+          best_score.required_count;
+      plan->baseline_scores[tree_parent].enabled_count +=
+          best_score.enabled_count;
+      plan->baseline_scores[tree_parent].priority += best_score.priority;
     }
   }
 

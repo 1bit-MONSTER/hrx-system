@@ -267,8 +267,8 @@ TEST_F(SourceGraphPlanTest, EnabledAlternativeSupersedesEarlierFallback) {
     enabled_state = {LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED};
   const auto* fallback = Add({0, 1}, 4, &fallback_state);
   Add({0, 1}, 2, &enabled_state);
-  const auto* first_singleton = Add({0}, 3);
-  const auto* second_singleton = Add({1}, 3);
+  const auto* first_singleton = Add({0}, 3, &enabled_state);
+  const auto* second_singleton = Add({1}, 3, &enabled_state);
   const auto query = loom_low_lower_source_graph_alternative_query_callback_t{
       .fn =
           [](void*,
@@ -295,6 +295,64 @@ TEST_F(SourceGraphPlanTest, EnabledAlternativeSupersedesEarlierFallback) {
   EXPECT_TRUE(complete);
   EXPECT_EQ(Selected(0), fallback);
   EXPECT_EQ(Selected(1), fallback);
+}
+
+TEST_F(SourceGraphPlanTest, EnabledCoverWinsBeforeFallbackFusionPriority) {
+  auto state = LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK;
+  const auto* fused = Add({0, 1, 2}, LOOM_LOW_LOWER_RULE_PRIORITY_MAX, &state);
+  const auto* first = Add({0}, 0);
+  const auto* second = Add({1, 2}, 0);
+  const auto query = loom_low_lower_source_graph_alternative_query_callback_t{
+      .fn =
+          [](void*,
+             const loom_low_lower_source_graph_alternative_t* alternative) {
+            auto* state =
+                static_cast<loom_low_lower_source_graph_alternative_state_t*>(
+                    loom_low_lower_source_graph_alternative_user_data(
+                        alternative));
+            return state ? *state
+                         : LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED;
+          },
+  };
+  bool complete = false;
+  IREE_ASSERT_OK(
+      loom_low_lower_source_graph_plan_resolve(plan_, query, &complete));
+  EXPECT_TRUE(complete);
+  EXPECT_EQ(Selected(0), first);
+  EXPECT_EQ(Selected(1), second);
+  EXPECT_EQ(Selected(2), second);
+
+  state = LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED;
+  IREE_ASSERT_OK(
+      loom_low_lower_source_graph_plan_resolve(plan_, query, &complete));
+  EXPECT_TRUE(complete);
+  EXPECT_EQ(Selected(0), fused);
+  EXPECT_EQ(Selected(1), fused);
+  EXPECT_EQ(Selected(2), fused);
+}
+
+TEST_F(SourceGraphPlanTest, RequiredCoverageWinsBeforeEnabledNodeCount) {
+  const auto* fallback = Add({0, 1}, 0);
+  Add({1, 2}, LOOM_LOW_LOWER_RULE_PRIORITY_MAX);
+  const auto* third = Add({2}, 0);
+  const auto query = loom_low_lower_source_graph_alternative_query_callback_t{
+      .fn =
+          [](void* user_data,
+             const loom_low_lower_source_graph_alternative_t* alternative) {
+            return alternative == user_data
+                       ? LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK
+                       : LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED;
+          },
+      .user_data =
+          const_cast<loom_low_lower_source_graph_alternative_t*>(fallback),
+  };
+  bool complete = false;
+  IREE_ASSERT_OK(
+      loom_low_lower_source_graph_plan_resolve(plan_, query, &complete));
+  EXPECT_TRUE(complete);
+  EXPECT_EQ(Selected(0), fallback);
+  EXPECT_EQ(Selected(1), fallback);
+  EXPECT_EQ(Selected(2), third);
 }
 
 }  // namespace
