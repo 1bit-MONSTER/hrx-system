@@ -923,6 +923,15 @@ static void wrap___hipRegisterVar(void** fatCubinHandle, char* hostVar,
 
 __attribute__((visibility("default"))) hip_function_table_t*
 hip_interceptor_init(hip_function_table_t* real_functions) {
+  // Idempotent: a second init must not reopen the trace file with "w" and
+  // truncate everything already traced.
+  static int initialized = 0;
+  if (initialized) {
+    trace_msg(2, "HIP buffer tracer already initialized; keeping state");
+    return &g_wrapper;
+  }
+  initialized = 1;
+
   g_real = real_functions;
 
   // Initialize tables
