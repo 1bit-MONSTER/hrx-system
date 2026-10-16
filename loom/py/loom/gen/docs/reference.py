@@ -256,7 +256,8 @@ def _interface_name(interface: Any) -> str:
 
 
 def _effect_name(effect: Effect) -> str:
-    return f"{effect.kind.value} {effect.operand}"
+    resource = effect.operand if effect.operand is not None else "ambient memory"
+    return f"{effect.kind.value} {resource}"
 
 
 def _ownership_effect_name(

@@ -19,7 +19,6 @@ func.def @rodata_definition_facts() -> (i1, i64, i64, i64) {
 global.rodata.def @message = align(16) bytes("6c6f6f6d")
 
 func.def @rodata_definition_facts() -> (i1, i64, i64, i64) {
-  %message = global.load @message : buffer
   %is_reference = scalar.constant true : i1
   %buffer_space = scalar.constant 4 : i64
   %buffer_alignment = scalar.constant 16 : i64
@@ -44,7 +43,6 @@ func.def @rodata_declaration_facts() -> (i1, i64, i64) {
 global.rodata.decl @external_message
 
 func.def @rodata_declaration_facts() -> (i1, i64, i64) {
-  %message = global.load @external_message : buffer
   %is_reference = scalar.constant true : i1
   %space = scalar.constant 4 : i64
   %alignment = scalar.constant 1 : i64

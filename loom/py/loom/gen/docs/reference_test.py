@@ -104,6 +104,9 @@ def test_reference_renders_semantics_and_canonical_examples() -> None:
     assert "`SameElementType(view, result)`" in vector_load
     assert "%v = vector.load" in vector_load
 
+    assert "`read ambient memory`" in files["dialects/global/ops/load.md"]
+    assert "`write ambient memory`" in files["dialects/global/ops/store.md"]
+
     template_def = files["dialects/template/ops/def.md"]
     assert "requires [#target.subgroup.size<32>]" in template_def
 

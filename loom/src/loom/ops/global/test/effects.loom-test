@@ -1,0 +1,95 @@
+// RUN: pass cse
+
+// Materializing a data address does not invalidate another memory read.
+global.rodata.def @table = align(4) bytes("01000000")
+
+func.def @data_address(%view: view<1xi32>) -> (buffer, buffer, i32, i32) {
+  %before = view.load %view[0] : view<1xi32> -> i32
+  %first = global.load @table : buffer
+  %second = global.load @table : buffer
+  %after = view.load %view[0] : view<1xi32> -> i32
+  func.return %first, %second, %before, %after : buffer, buffer, i32, i32
+}
+
+// ----
+global.rodata.def @table = align(4) bytes("01000000")
+
+func.def @data_address(%view: view<1xi32>) -> (buffer, buffer, i32, i32) {
+  %before = view.load %view[0] : view<1xi32> -> i32
+  %first = global.load @table : buffer
+  func.return %first, %first, %before, %before : buffer, buffer, i32, i32
+}
+
+// ====
+
+// Forward declarations have the same read contract before payload linking.
+func.def @declared_address() -> (buffer, buffer) {
+  %first = global.load @table : buffer
+  %second = global.load @table : buffer
+  func.return %first, %second : buffer, buffer
+}
+
+global.rodata.decl @table
+
+// ----
+func.def @declared_address() -> (buffer, buffer) {
+  %first = global.load @table : buffer
+  func.return %first, %first : buffer, buffer
+}
+
+global.rodata.decl @table
+
+// ====
+
+// A value load can be reused in one memory epoch, but never across a store.
+global.variable @value : i32
+
+func.def @mutable_slot(%new: i32) -> (i32, i32, i32) {
+  %before = global.load @value : i32
+  %duplicate = global.load @value : i32
+  global.store %new, @value : i32
+  %after = global.load @value : i32
+  func.return %before, %duplicate, %after : i32, i32, i32
+}
+
+// ----
+global.variable @value : i32
+
+func.def @mutable_slot(%new: i32) -> (i32, i32, i32) {
+  %before = global.load @value : i32
+  global.store %new, @value : i32
+  %after = global.load @value : i32
+  func.return %before, %before, %after : i32, i32, i32
+}
+
+// ====
+
+// Computed constants remain writable during initialization. Their loads are
+// reads, not pure address materializations that could cross the second store.
+global.constant @value : i32
+
+func.def initializer @initialize() {
+  %initial = scalar.constant 1 : i32
+  %replacement = scalar.constant 2 : i32
+  global.store %initial, @value : i32
+  %before = global.load @value : i32
+  %duplicate = global.load @value : i32
+  global.store %replacement, @value : i32
+  %after = global.load @value : i32
+  test.use %before, %duplicate, %after : i32, i32, i32
+  func.return
+}
+
+// ----
+global.constant @value : i32
+
+func.def initializer @initialize() {
+  %initial = scalar.constant 1 : i32
+  %replacement = scalar.constant 2 : i32
+  global.store %initial, @value : i32
+  %before = global.load @value : i32
+  global.store %replacement, @value : i32
+  %after = global.load @value : i32
+  test.use %before, %before, %after : i32, i32, i32
+  func.return
+}

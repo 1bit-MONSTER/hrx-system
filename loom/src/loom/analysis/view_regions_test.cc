@@ -18,6 +18,7 @@
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/channel/ops.h"
 #include "loom/ops/encoding/ops.h"
+#include "loom/ops/global/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/scf/ops.h"
@@ -41,6 +42,7 @@ class ViewRegionsTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_BUFFER, loom_buffer_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_CHANNEL, loom_channel_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_ENCODING, loom_encoding_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_GLOBAL, loom_global_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_INDEX, loom_index_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_KERNEL, loom_kernel_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_SCF, loom_scf_dialect_vtables);
@@ -508,6 +510,78 @@ TEST_F(ViewRegionsTest, UnknownEffectsPreventStorageStability) {
             LOOM_VIEW_ACCESS_READ);
   EXPECT_FALSE(RootIsStable(&table, view));
 }
+
+enum class GlobalStorageEffect {
+  kRodataDefinition,
+  kRodataDeclaration,
+  kConstantRead,
+  kVariableRead,
+  kVariableWrite,
+};
+
+class GlobalStorageStabilityTest
+    : public ViewRegionsTest,
+      public ::testing::WithParamInterface<GlobalStorageEffect> {};
+
+TEST_P(GlobalStorageStabilityTest, LoadsDoNotInvalidateOtherStorage) {
+  const loom_value_id_t buffer = DefineBufferArg();
+  const loom_value_id_t view = BuildReadOnlyView(BuildNoAliasBuffer(buffer));
+  loom_builder_t module_builder;
+  loom_builder_initialize(module_, &module_->arena, loom_module_block(module_),
+                          &module_builder);
+  loom_string_id_t name = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_intern_string(module_, IREE_SV("data"), &name));
+  loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_add_symbol(module_, name, &symbol_id));
+  const loom_symbol_ref_t symbol = {.module_id = 0, .symbol_id = symbol_id};
+  const loom_type_t type = loom_type_buffer();
+  loom_op_t* operation = nullptr;
+  switch (GetParam()) {
+    case GlobalStorageEffect::kRodataDefinition:
+      IREE_ASSERT_OK(loom_global_rodata_def_build(
+          &module_builder, 0, symbol, 0, loom_symbol_ref_array_t{},
+          iree_make_const_byte_span("abcdefghijklmnop", 16),
+          LOOM_LOCATION_UNKNOWN, &operation));
+      break;
+    case GlobalStorageEffect::kRodataDeclaration:
+      IREE_ASSERT_OK(loom_global_rodata_decl_build(
+          &module_builder, symbol, LOOM_LOCATION_UNKNOWN, &operation));
+      break;
+    case GlobalStorageEffect::kConstantRead:
+      IREE_ASSERT_OK(loom_global_constant_build(
+          &module_builder, 0, symbol, type, nullptr, 0, loom_attr_absent(),
+          LOOM_LOCATION_UNKNOWN, &operation));
+      break;
+    case GlobalStorageEffect::kVariableRead:
+    case GlobalStorageEffect::kVariableWrite:
+      IREE_ASSERT_OK(loom_global_variable_build(
+          &module_builder, 0, symbol, type, nullptr, 0, loom_attr_absent(),
+          LOOM_LOCATION_UNKNOWN, &operation));
+      break;
+  }
+  if (GetParam() == GlobalStorageEffect::kVariableWrite) {
+    IREE_ASSERT_OK(loom_global_store_build(&builder_, buffer, symbol,
+                                           LOOM_LOCATION_UNKNOWN, &operation));
+  } else {
+    IREE_ASSERT_OK(loom_global_load_build(&builder_, symbol, &type, 1,
+                                          LOOM_LOCATION_UNKNOWN, &operation));
+    BuildReadOnlyView(loom_global_load_result(operation).values[0]);
+  }
+  loom_value_fact_table_t facts = {};
+  ComputeFacts(&facts);
+  loom_view_region_table_t table = {};
+  Analyze(&facts, &table);
+  EXPECT_EQ(RootIsStable(&table, view),
+            GetParam() != GlobalStorageEffect::kVariableWrite);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ViewRegions, GlobalStorageStabilityTest,
+    ::testing::Values(GlobalStorageEffect::kRodataDefinition,
+                      GlobalStorageEffect::kRodataDeclaration,
+                      GlobalStorageEffect::kConstantRead,
+                      GlobalStorageEffect::kVariableRead,
+                      GlobalStorageEffect::kVariableWrite));
 
 enum class CallableStorageEffect {
   kRead,

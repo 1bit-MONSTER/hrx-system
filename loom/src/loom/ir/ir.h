@@ -769,11 +769,11 @@ enum loom_trait_bits_e {
   // symbol-defining ops even when the op carries result values (which
   // hold return type information for the printer's ResultTypeList).
   LOOM_TRAIT_SYMBOL_DEFINE = 1u << 8,
-  // Op reads from at least one resource operand (has LOOM_OPERAND_READS).
-  // Derived by the generator from per-operand effect flags.
+  // Op reads a resource operand or ambient memory such as a global value slot.
+  // Operand reads additionally carry LOOM_OPERAND_READS on their descriptors.
   LOOM_TRAIT_READS_MEMORY = 1u << 9,
-  // Op writes to at least one resource operand (has LOOM_OPERAND_WRITES).
-  // Derived by the generator from per-operand effect flags.
+  // Op writes a resource operand or ambient memory such as a global value slot.
+  // Operand writes additionally carry LOOM_OPERAND_WRITES on their descriptors.
   LOOM_TRAIT_WRITES_MEMORY = 1u << 10,
   // Op may produce different results for identical inputs (RNG,
   // timestamps, hardware state queries). Prevents CSE and LICM but

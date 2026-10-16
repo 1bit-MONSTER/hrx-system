@@ -22,6 +22,7 @@ from loom.dsl import (
     TERMINATOR,
     AttrDef,
     Dialect,
+    Effect,
     EnumCase,
     EnumDef,
     ExecutionCondition,
@@ -33,6 +34,8 @@ from loom.dsl import (
     Op,
     OpCategory,
     Operand,
+    Reads,
+    ReadWrites,
     RegionDef,
     RegionExecution,
     Result,
@@ -40,10 +43,31 @@ from loom.dsl import (
     SymbolDefinition,
     SymbolReference,
     SymbolValueContract,
+    Writes,
 )
 from loom.gen.ops.c_dialect import generate_dialect_contents
 from loom.gen.ops.c_metadata_tables import generate_tables_c
 from loom.gen.ops.model import DialectGeneration
+
+
+@pytest.mark.parametrize(
+    ("effect", "traits"),
+    [
+        (Reads(), "LOOM_TRAIT_READS_MEMORY"),
+        (Writes(), "LOOM_TRAIT_WRITES_MEMORY"),
+        (ReadWrites(), "LOOM_TRAIT_READS_MEMORY | LOOM_TRAIT_WRITES_MEMORY"),
+    ],
+)
+def test_ambient_effects_do_not_access_operand_payloads(effect: Effect, traits: str) -> None:
+    op = Op(
+        "test.ambient",
+        operands=[Operand("value", INTEGER)],
+        effects=[effect],
+    )
+    source = generate_tables_c("test", 0, [op])
+    assert f".traits = {traits}," in source
+    assert "LOOM_OPERAND_READS" not in source
+    assert "LOOM_OPERAND_WRITES" not in source
 
 
 def test_generate_tables_emits_execution_condition() -> None:
