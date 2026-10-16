@@ -159,9 +159,17 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       plan->arena, capacity, sizeof(*plan->incoming), (void**)&plan->incoming));
   plan->parent = plan->source;
+  // A continuation contributes upstream bypasses only when a real shared arm
+  // already requires a join. Visit that arm first, regardless of predicate
+  // sense.
+  uint16_t destinations[2] = {plan->destinations[0], plan->destinations[1]};
+  if (destinations[0] == continuation) {
+    destinations[0] = plan->destinations[1];
+    destinations[1] = plan->destinations[0];
+  }
   for (uint8_t arm = 0; arm < 2; ++arm) {
-    uint16_t destination = plan->destinations[arm];
-    if (destination == continuation ||
+    uint16_t destination = destinations[arm];
+    if ((destination == continuation && !plan->incoming_count) ||
         loom_cfg_converge_is_forwarding(graph->blocks[destination].block,
                                         graph->blocks[continuation].block)) {
       continue;
@@ -178,11 +186,10 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
                                              edge->source_block_index)) {
         continue;
       }
+      bool upstream = true;
       if (loop_index != LOOM_CFG_LOOP_NEST_NONE) {
-        if (loom_cfg_loop_nest_innermost(loops, edge->source_block_index) !=
-            loop_index) {
-          return iree_ok_status();
-        }
+        upstream = loom_cfg_loop_nest_innermost(
+                       loops, edge->source_block_index) == loop_index;
         for (uint8_t other_arm = 0; other_arm < 2; ++other_arm) {
           uint16_t entry = plan->destinations[other_arm];
           // The predecessor is outside both arm subtrees, so neither arm can
@@ -190,13 +197,21 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
           if (entry != continuation &&
               loom_cfg_dominance_block_dominates(dominance, entry,
                                                  edge->source_block_index)) {
-            return iree_ok_status();
+            upstream = false;
           }
         }
-      } else if (loom_cfg_converge_may_reach(graph, plan->destinations[0],
-                                             edge->source_block_index) ||
-                 loom_cfg_converge_may_reach(graph, plan->destinations[1],
-                                             edge->source_block_index)) {
+      } else {
+        upstream = !loom_cfg_converge_may_reach(graph, plan->destinations[0],
+                                                edge->source_block_index) &&
+                   !loom_cfg_converge_may_reach(graph, plan->destinations[1],
+                                                edge->source_block_index);
+      }
+      if (!upstream) {
+        // Internal arm exits keep their continuation. Only bypasses that can
+        // precede both arms participate in the new predicate join.
+        if (destination == continuation) {
+          continue;
+        }
         return iree_ok_status();
       }
       plan->incoming[plan->incoming_count++] = index;

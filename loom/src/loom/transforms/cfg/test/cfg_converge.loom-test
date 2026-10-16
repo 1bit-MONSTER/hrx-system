@@ -702,3 +702,210 @@ func.def @irreducible_overlap(%entry: i1, %first: i1, %second: i1, %last: i1, %r
 ^exit:
   func.return
 }
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// The enclosing decision converges both the shared body and its upstream bypass.
+func.def @upstream_bypass(%leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^publish, ^exit
+^publish:
+  test.use %value : i32
+  cfg.br ^shared
+^capture:
+  cfg.cond_br %capture, ^shared, ^exit
+^shared:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @upstream_bypass(%leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^publish, ^_bb5
+^publish:
+  test.use %value : i32
+  cfg.br ^_bb4
+^capture:
+  cfg.br ^_bb6(%capture: i1)
+^_bb4:
+  %5 = scalar.constant 1 : i1
+  cfg.br ^_bb6(%5: i1)
+^_bb5:
+  %6 = scalar.constant 0 : i1
+  cfg.br ^_bb6(%6: i1)
+^_bb6(%4: i1):
+  cfg.cond_br %4, ^shared, ^exit
+^shared:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Exchanging the decision arms carries a true predicate on the upstream bypass.
+func.def @upstream_bypass_true(%leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^exit, ^publish
+^publish:
+  test.use %value : i32
+  cfg.br ^shared
+^capture:
+  cfg.cond_br %capture, ^exit, ^shared
+^shared:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @upstream_bypass_true(%leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^_bb5, ^publish
+^publish:
+  test.use %value : i32
+  cfg.br ^_bb4
+^capture:
+  cfg.br ^_bb6(%capture: i1)
+^_bb4:
+  %5 = scalar.constant 0 : i1
+  cfg.br ^_bb6(%5: i1)
+^_bb5:
+  %6 = scalar.constant 1 : i1
+  cfg.br ^_bb6(%6: i1)
+^_bb6(%4: i1):
+  cfg.cond_br %4, ^exit, ^shared
+^shared:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Upstream loop-local bypasses converge without redirecting the shared body's
+// exit or the latch backedge into the predicate join.
+func.def @loop_upstream_bypass(%running: i1, %leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.br ^header
+^header:
+  cfg.cond_br %running, ^body, ^exit
+^body:
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^publish, ^latch
+^publish:
+  test.use %value : i32
+  cfg.br ^shared
+^capture:
+  cfg.cond_br %capture, ^shared, ^latch
+^shared:
+  test.use %value : i32
+  cfg.br ^latch
+^latch:
+  cfg.br ^header
+^exit:
+  func.return
+}
+
+// ----
+func.def @loop_upstream_bypass(%running: i1, %leader: i1, %report: i1, %capture: i1, %value: i32) {
+  cfg.br ^header
+^header:
+  cfg.cond_br %running, ^body, ^exit
+^body:
+  cfg.cond_br %leader, ^report, ^capture
+^report:
+  test.use %value : i32
+  cfg.cond_br %report, ^publish, ^_bb7
+^publish:
+  test.use %value : i32
+  cfg.br ^_bb6
+^capture:
+  cfg.br ^_bb8(%capture: i1)
+^_bb6:
+  %6 = scalar.constant 1 : i1
+  cfg.br ^_bb8(%6: i1)
+^_bb7:
+  %7 = scalar.constant 0 : i1
+  cfg.br ^_bb8(%7: i1)
+^_bb8(%5: i1):
+  cfg.cond_br %5, ^shared, ^latch
+^shared:
+  test.use %value : i32
+  cfg.br ^latch
+^latch:
+  cfg.br ^header
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// An outer bypass widens the join's parent. Values loaded only on active paths
+// travel through the join; the bypass never performs the load and carries zero.
+func.def @outer_bypass_capture(%enabled: i1, %leader: i1, %capture: i1, %input: view<1xi32>) {
+  cfg.cond_br %enabled, ^setup, ^exit
+^setup:
+  %value = view.load %input[0] : view<1xi32> -> i32
+  cfg.cond_br %leader, ^publish, ^capture
+^publish:
+  test.use %value : i32
+  cfg.br ^shared
+^capture:
+  cfg.cond_br %capture, ^shared, ^exit
+^shared:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @outer_bypass_capture(%enabled: i1, %leader: i1, %capture: i1, %input: view<1xi32>) {
+  cfg.cond_br %enabled, ^setup, ^_bb5
+^setup:
+  %value = view.load %input[0] : view<1xi32> -> i32
+  cfg.cond_br %leader, ^publish, ^capture
+^publish:
+  test.use %value : i32
+  cfg.br ^_bb4
+^capture:
+  cfg.br ^_bb6(%capture: i1, %value: i32)
+^_bb4:
+  %7 = scalar.constant 1 : i1
+  cfg.br ^_bb6(%7: i1, %value: i32)
+^_bb5:
+  %8 = scalar.constant 0 : i1
+  %9 = scalar.constant 0 : i32
+  cfg.br ^_bb6(%8: i1, %9: i32)
+^_bb6(%5: i1, %6: i32):
+  cfg.cond_br %5, ^shared, ^exit
+^shared:
+  test.use %6 : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}

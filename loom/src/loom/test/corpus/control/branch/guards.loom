@@ -458,3 +458,96 @@ check.scenario @overlapping_loop_guard_values {
   }
   check.return
 }
+
+// A nested uniform guard and its later shared body must reconverge both
+// participating lanes and upstream bypasses before the shared loop.
+kernel.def @nested_guard_bypass() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer, %iterations: index) {
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %position = kernel.workitem.dispatch.id<x> : index
+  %base = index.constant 0 : offset
+  %outputs = buffer.view %output[%base] : buffer -> view<128xi32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %multiplier = scalar.constant 10 : i32
+  %first = scalar.constant 1 : i32
+  %second = scalar.constant 2 : i32
+  %third = scalar.constant 3 : i32
+  %leader = index.cmp eq, %lane, %begin : index
+  scf.if %leader {
+    %previous = view.load %outputs[%position] : view<128xi32> -> i32
+    %scaled = scalar.muli %previous, %multiplier : i32
+    %next = scalar.addi %scaled, %first : i32
+    view.store %next, %outputs[%position] : i32, view<128xi32>
+    %first_group = index.cmp eq, %group, %begin : index
+    scf.if %first_group {
+      %previous = view.load %outputs[%position] : view<128xi32> -> i32
+      %scaled = scalar.muli %previous, %multiplier : i32
+      %next = scalar.addi %scaled, %second : i32
+      view.store %next, %outputs[%position] : i32, view<128xi32>
+    }
+  }
+  %capture_group = index.cmp eq, %group, %begin : index
+  scf.if %capture_group {
+    scf.for %iteration = [%begin to %iterations step %step] {
+      %previous = view.load %outputs[%position] : view<128xi32> -> i32
+      %scaled = scalar.muli %previous, %multiplier : i32
+      %next = scalar.addi %scaled, %third : i32
+      view.store %next, %outputs[%position] : i32, view<128xi32>
+    }
+  }
+  kernel.return
+}
+
+// Evaluate the observation trace with scalar selects and a loop-carried hash.
+// Leaders append 1, selected leaders append 2, and selected groups append 3
+// once per iteration. The oracle performs one final store per lane.
+func.def @nested_guard_bypass_oracle(%output: buffer, %iterations: index) {
+  %base = index.constant 0 : offset
+  %outputs = buffer.view %output[%base] : buffer -> view<128xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %width = index.constant 64 : index
+  %step = index.constant 1 : index
+  %multiplier = scalar.constant 10 : i32
+  %first = scalar.constant 1 : i32
+  %second = scalar.constant 2 : i32
+  %third = scalar.constant 3 : i32
+  scf.for %position = [%begin to %end step %step] {
+    %lane = index.rem %position, %width : index
+    %leader = index.cmp eq, %lane, %begin : index
+    %selected = index.cmp ult, %position, %width : index
+    %selected_leader = scalar.andi %leader, %selected : i1
+    %seed = view.load %outputs[%position] : view<128xi32> -> i32
+    %first_scaled = scalar.muli %seed, %multiplier : i32
+    %first_next = scalar.addi %first_scaled, %first : i32
+    %first_hash = scf.select %leader, %first_next, %seed : i32
+    %second_scaled = scalar.muli %first_hash, %multiplier : i32
+    %second_next = scalar.addi %second_scaled, %second : i32
+    %second_hash = scf.select %selected_leader, %second_next, %first_hash : i32
+    %result = scf.for %iteration = [%begin to %iterations step %step](%hash = %second_hash : i32) -> (i32) {
+      %scaled = scalar.muli %hash, %multiplier : i32
+      %next = scalar.addi %scaled, %third : i32
+      %selected_hash = scf.select %selected, %next, %hash : i32
+      scf.yield %selected_hash : i32
+    }
+    view.store %result, %outputs[%position] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @nested_guard_bypass_values {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<160xi32>
+    %output = check.tensor.view %storage offset(64) : tensor<160xi32> -> tensor<128xi32>
+    check.compare<@nested_guard_bypass, @nested_guard_bypass_oracle>(%output, %trial) : (tensor<128xi32>, index) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<160xi32>
+    }
+  }
+  check.return
+}
