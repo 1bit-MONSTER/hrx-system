@@ -170,7 +170,6 @@ loom_scenario_test(
             "function/call/spill.loom:@spill_values": "LOWERING/044",
             "function/template/library.loom:@template_dead_library_values": "LOWERING/045",
             "kernel/subgroup/reduce.loom:@subgroup_extended_reduction_values": "AMDGPU/023",
-            "memory/address/address.loom:@launch_arithmetic_values": "TARGET/004",
             "memory/buffer/allocation_freshness.loom:@allocation_freshness_values": "LOWERING/044",
             "memory/buffer/boundaries.loom:@vector_boundary_values": "LOWERING/044",
             "memory/buffer/buffers.loom:@buffer_values": "AMDGPU/023",
