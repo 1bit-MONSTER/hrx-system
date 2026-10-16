@@ -1139,7 +1139,7 @@ static iree_status_t loom_serve_speech_generator_prepare(
                                                       results[1], &payload);
   }
   if (iree_status_is_ok(status) &&
-      (!state || !payload || !iree_vm_buffer_length(payload) ||
+      (!state || !payload ||
        iree_vm_buffer_length(payload) > model->input_capacity)) {
     status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "source request exceeds declared speech storage");
@@ -1195,15 +1195,18 @@ static iree_status_t loom_serve_speech_generator_admit(
     IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
         invocation->payload, 0, iree_vm_buffer_length(invocation->payload),
         &payload));
-    iree_hal_transfer_operation_t uploads[2] = {
-        {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-         .upload = {
-             .source = payload.data,
-             .target_buffer =
-                 loom_serve_rows_buffer(&model->state, LOOM_SERVE_ROWS_INPUT),
-             .target_offset = invocation->row_index * model->input_capacity,
-             .length = payload.data_length}}};
-    iree_host_size_t upload_count = 1;
+    iree_hal_transfer_operation_t uploads[2];
+    iree_host_size_t upload_count = 0;
+    if (payload.data_length) {
+      uploads[upload_count++] = (iree_hal_transfer_operation_t){
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+          .upload = {
+              .source = payload.data,
+              .target_buffer =
+                  loom_serve_rows_buffer(&model->state, LOOM_SERVE_ROWS_INPUT),
+              .target_offset = invocation->row_index * model->input_capacity,
+              .length = payload.data_length}};
+    }
     if (!model->conditioning_initialized) {
       iree_const_byte_span_t initial;
       IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
@@ -1219,9 +1222,11 @@ static iree_status_t loom_serve_speech_generator_admit(
                        .length = initial.data_length}};
       }
     }
-    uint64_t value = 0;
-    IREE_RETURN_IF_ERROR(loom_serve_execution_transfer(
-        model->execution, upload_count, uploads, &value));
+    if (upload_count) {
+      uint64_t value = 0;
+      IREE_RETURN_IF_ERROR(loom_serve_execution_transfer(
+          model->execution, upload_count, uploads, &value));
+    }
     // A failed timeline terminates the model; partial initialization is never
     // published as a reusable cache entry by source completion.
     model->conditioning_initialized = true;

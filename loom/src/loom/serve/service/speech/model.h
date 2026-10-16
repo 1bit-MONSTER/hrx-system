@@ -92,6 +92,10 @@ iree_status_t loom_serve_speech_load_free(loom_serve_speech_load_t* load);
 //          feedback: buffer)
 //   -> (frame_position, pcm_byte_offset, frame_count: i64, complete: i32).
 //
+// Request payload may be empty when source carries all request inputs in its
+// host state or subsequent work. Admission uploads only nonempty payloads and
+// conditioning, while still retiring accepted residency activation.
+//
 // prepare_work is CPU-only and does not advance request progress. Offers are
 // refreshed at a retired model cut. Equal tags and additive units fitting
 // batch_units permit a cohort; different progress alone need not separate it.
