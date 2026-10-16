@@ -10,17 +10,24 @@
 namespace {
 
 using loom_serve::testing::HttpRouterTest;
-using loom_serve::testing::ModelService;
+using loom_serve::testing::loom_serve_test_model_service_t;
 using loom_serve::testing::ObservationClient;
 
 // A model dependency with independently controlled service and final device
 // ownership. HTTP admission, the registry, task owner and retirement policy are
 // the production implementations under test.
-struct RegistrationDependency {
-  enum class PreparationFailure { kNone, kLocal, kShared };
+struct loom_serve_test_registration_dependency_t {
+  enum class loom_serve_test_registration_preparation_failure_t {
+    kNone,
+    kLocal,
+    kShared
+  };
 
   // Requests reach the same held-completion service used by the routing tests.
-  ModelService service = {.name = "dynamic", .hold_completion = true};
+  loom_serve_test_model_service_t service = {
+      .name = "dynamic",
+      .hold_completion = true,
+  };
   // Model-protocol counters supplied by the dependency, not synthesized by
   // routing.
   loom_serve_telemetry_counters_t counters = {};
@@ -47,7 +54,8 @@ struct RegistrationDependency {
   // Counts final release attempts, not asynchronous ownership polling.
   std::atomic<unsigned> release_attempts{0};
   // Preparation failure scope, configured under mutex before factory creation.
-  PreparationFailure preparation_failure = PreparationFailure::kNone;
+  loom_serve_test_registration_preparation_failure_t preparation_failure =
+      loom_serve_test_registration_preparation_failure_t::kNone;
   // Parameter state belongs to the model dependency and changes on owner turns.
   loom_serve_residency_snapshot_t parameters = {
       .active = true,
@@ -82,21 +90,24 @@ struct RegistrationDependency {
     iree_status_t status = iree_ok_status();
   } activation;
 
-  struct Operation {
+  struct loom_serve_test_registration_operation_t {
     // Test-owned model dependency, live beyond the owning registry.
-    RegistrationDependency* dependency;
+    loom_serve_test_registration_dependency_t* dependency;
   };
 
   static iree_status_t Prepare(void* self, bool cancel, bool* complete,
                                loom_serve_http_service_t* service,
                                loom_serve_compilation_report_t* out_report) {
-    auto* dependency = static_cast<Operation*>(self)->dependency;
+    auto* dependency =
+        static_cast<loom_serve_test_registration_operation_t*>(self)
+            ->dependency;
     *complete = true;
     if (cancel) {
       return iree_make_status(IREE_STATUS_CANCELLED, "preparation cancelled");
     }
     std::lock_guard<std::mutex> lock(dependency->mutex);
-    if (dependency->preparation_failure != PreparationFailure::kNone) {
+    if (dependency->preparation_failure !=
+        loom_serve_test_registration_preparation_failure_t::kNone) {
       return iree_make_status(IREE_STATUS_UNAVAILABLE, "model prepare failed");
     }
     *service =
@@ -105,8 +116,11 @@ struct RegistrationDependency {
     return iree_ok_status();
   }
   static iree_status_t Retire(void* self, bool* complete) {
-    auto* dependency = static_cast<Operation*>(self)->dependency;
-    EXPECT_FALSE(ModelService::IsPending(&dependency->service));
+    auto* dependency =
+        static_cast<loom_serve_test_registration_operation_t*>(self)
+            ->dependency;
+    EXPECT_FALSE(
+        loom_serve_test_model_service_t::IsPending(&dependency->service));
     EXPECT_TRUE(dependency->service.pending.empty());
     std::lock_guard<std::mutex> lock(dependency->mutex);
     EXPECT_FALSE(dependency->activation.submitted);
@@ -124,14 +138,16 @@ struct RegistrationDependency {
     return iree_ok_status();
   }
   static void Destroy(void* self) {
-    auto* operation = static_cast<Operation*>(self);
+    auto* operation =
+        static_cast<loom_serve_test_registration_operation_t*>(self);
     ++operation->dependency->destroyed;
     delete operation;
   }
   static loom_serve_registration_parameters_t Parameters(
       void* self, loom_serve_model_component_t component) {
     const auto parameters =
-        static_cast<Operation*>(self)->dependency->parameters;
+        static_cast<loom_serve_test_registration_operation_t*>(self)
+            ->dependency->parameters;
     return {
         .phase = "ready",
         .prepared = true,
@@ -141,14 +157,18 @@ struct RegistrationDependency {
   }
   static void SetPinned(void* self, loom_serve_model_component_t component,
                         bool pinned) {
-    static_cast<Operation*>(self)->dependency->pinned = pinned;
+    static_cast<loom_serve_test_registration_operation_t*>(self)
+        ->dependency->pinned = pinned;
   }
   static iree_status_t Deactivate(void* self,
                                   loom_serve_model_component_t component,
                                   bool* out_complete) {
     *out_complete = true;
-    auto* dependency = static_cast<Operation*>(self)->dependency;
-    EXPECT_FALSE(ModelService::IsPending(&dependency->service));
+    auto* dependency =
+        static_cast<loom_serve_test_registration_operation_t*>(self)
+            ->dependency;
+    EXPECT_FALSE(
+        loom_serve_test_model_service_t::IsPending(&dependency->service));
     EXPECT_TRUE(dependency->service.pending.empty());
     if (dependency->fail_deactivation.exchange(false)) {
       return iree_make_status(IREE_STATUS_UNAVAILABLE,
@@ -166,7 +186,9 @@ struct RegistrationDependency {
                                 loom_serve_activation_phase_t* phase,
                                 iree_status_t* component_status) {
     *component_status = iree_ok_status();
-    auto* dependency = static_cast<Operation*>(self)->dependency;
+    auto* dependency =
+        static_cast<loom_serve_test_registration_operation_t*>(self)
+            ->dependency;
     std::lock_guard<std::mutex> lock(dependency->mutex);
     auto& activation = dependency->activation;
     const bool cancel =
@@ -201,7 +223,8 @@ struct RegistrationDependency {
       loom_serve_wake_callback_t observer,
       loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
       loom_serve_registration_t* out_registration) {
-    auto* dependency = static_cast<RegistrationDependency*>(self);
+    auto* dependency =
+        static_cast<loom_serve_test_registration_dependency_t*>(self);
     // Import fixture configuration before transferring it to the model owner.
     std::lock_guard<std::mutex> lock(dependency->mutex);
     dependency->service.name = configuration->name.data;
@@ -211,7 +234,7 @@ struct RegistrationDependency {
     dependency->stream = stream;
     ++dependency->created;
     *out_registration = {
-        .self = new Operation{dependency},
+        .self = new loom_serve_test_registration_operation_t{dependency},
         .prepare = Prepare,
         .retire = Retire,
         .parameters = Parameters,
@@ -223,9 +246,11 @@ struct RegistrationDependency {
     return iree_ok_status();
   }
   static iree_status_t QueryStatus(void* self) {
-    auto* dependency = static_cast<RegistrationDependency*>(self);
+    auto* dependency =
+        static_cast<loom_serve_test_registration_dependency_t*>(self);
     std::lock_guard<std::mutex> lock(dependency->mutex);
-    return dependency->preparation_failure == PreparationFailure::kShared
+    return dependency->preparation_failure ==
+                   loom_serve_test_registration_preparation_failure_t::kShared
                ? iree_make_status(IREE_STATUS_UNAVAILABLE,
                                   "shared reclamation failed")
                : iree_ok_status();
@@ -264,8 +289,8 @@ class HttpRouterRegistrationTest : public HttpRouterTest {
         .self = &managed_,
         .kinds = 1u << LOOM_SERVE_MODEL_KIND_EMBEDDING,
         .device_count = 1,
-        .create = RegistrationDependency::Create,
-        .query_status = RegistrationDependency::QueryStatus,
+        .create = loom_serve_test_registration_dependency_t::Create,
+        .query_status = loom_serve_test_registration_dependency_t::QueryStatus,
     };
     HttpRouterTest::SetUp();
   }
@@ -306,7 +331,7 @@ class HttpRouterRegistrationTest : public HttpRouterTest {
   }
   // The model alone is a dependency; every control/transport path is
   // production.
-  RegistrationDependency managed_;
+  loom_serve_test_registration_dependency_t managed_;
 };
 
 TEST_P(HttpRouterRegistrationTest, StalledObserverDoesNotRetainRemovedModel) {
@@ -696,8 +721,8 @@ TEST_P(HttpRouterRegistrationTest, DeactivationFailureDrainsIndependentOwners) {
 TEST_P(HttpRouterRegistrationTest, LocalPreparationFailureKeepsPeersServing) {
   {
     std::lock_guard<std::mutex> lock(managed_.mutex);
-    managed_.preparation_failure =
-        RegistrationDependency::PreparationFailure::kLocal;
+    managed_.preparation_failure = loom_serve_test_registration_dependency_t::
+        loom_serve_test_registration_preparation_failure_t::kLocal;
   }
   Declare();
   EXPECT_EQ(Control("undrain", "dynamic").find("HTTP/1.1 200"), 0u);
@@ -714,8 +739,8 @@ TEST_P(HttpRouterRegistrationTest, LocalPreparationFailureKeepsPeersServing) {
 TEST_P(HttpRouterRegistrationTest, SharedPreparationFailureDrainsEveryOwner) {
   {
     std::lock_guard<std::mutex> lock(managed_.mutex);
-    managed_.preparation_failure =
-        RegistrationDependency::PreparationFailure::kShared;
+    managed_.preparation_failure = loom_serve_test_registration_dependency_t::
+        loom_serve_test_registration_preparation_failure_t::kShared;
   }
   Declare();
   const int peer = Send("POST", "/v1/test", R"({"model":"held"})");

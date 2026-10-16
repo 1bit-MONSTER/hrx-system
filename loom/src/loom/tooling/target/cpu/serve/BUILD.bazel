@@ -10,6 +10,7 @@ load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "S
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/projector:sources.bzl", PROJECTOR_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/fixture/recognition:sources.bzl", RECOGNITION_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/speech:sources.bzl", SPEECH_SOURCES = "SOURCES", SPEECH_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/service/finite:testdata/component/sources.bzl", COMPONENT_SOURCES = "SOURCES")
@@ -125,6 +126,45 @@ loom_py_test(
     deps = ["//loom/src/loom/serve/testing:http"],
 )
 
+loom_py_test(
+    name = "recognition_client_test",
+    size = "small",
+    srcs = ["//loom/src/loom/serve/service/recognition:client_test.py"],
+    args = [
+        "$(rootpath :loom-serve-test-tool)",
+        "$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+    ],
+    data = RECOGNITION_SOURCES + [":loom-serve-test-tool"],
+    main = "client_test.py",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = ["//loom/src/loom/serve/testing:http"],
+)
+
+loom_cc_test(
+    name = "source_recognition_http_test",
+    args = ["--model_source=$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)"],
+    data = RECOGNITION_SOURCES,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/recognition:source_http_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_test(
     name = "source_image_service_test",
     data = IMAGE_SOURCES,
@@ -142,6 +182,70 @@ loom_cc_test(
         ":test_compiler",
         ":test_device",
         "//loom/src/loom/serve/service/image:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_recognition_model_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+    ],
+    data = RECOGNITION_SOURCES,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/recognition:source_model_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_recognition_service_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+    ],
+    data = RECOGNITION_SOURCES,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/recognition:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_recognition_service_parallel_test",
+    args = [
+        "--test_workers=4",
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+    ],
+    data = RECOGNITION_SOURCES,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/recognition:source_service_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
 )

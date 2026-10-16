@@ -1,14 +1,15 @@
 # Serving HTTP profiles
 
 All TCP and Unix listeners expose the same catalog and HTTP endpoints.
-Inference requests select a registered deployment through the JSON `model`
-field. Names come from [model documents](model-documents.md), not checkpoint
-filenames or an inferred architecture. An absent model returns 404.
+Inference requests select a registered deployment through the `model` field
+in JSON or multipart form data. Names come from
+[model documents](model-documents.md), not checkpoint filenames or an inferred
+architecture. An absent model returns 404.
 
-The text, image, embedding and speech profiles use familiar OpenAI response shapes,
-but are not the entire OpenAI API. Supported fields are explicit; unsupported
-execution options reject rather than being silently ignored. The server has
-no built-in authentication or TLS termination.
+The text, image, embedding, speech and transcription profiles use familiar
+OpenAI response shapes, but are not the entire OpenAI API. Supported fields are
+explicit; unsupported execution options reject rather than being silently
+ignored. The server has no built-in authentication or TLS termination.
 
 ## Request framing
 
@@ -340,6 +341,56 @@ omitted response format return an input error. Voice registration and sample
 persistence are not supplied by this endpoint; conditioning assets belong to
 the loaded package. File-based players require an encoded-audio profile rather
 than raw PCM.
+
+## Audio transcription
+
+`POST /v1/audio/transcriptions` accepts a recognition deployment and signed
+little-endian PCM16 as `multipart/form-data`. For a 16 kHz mono recognizer:
+
+```sh
+curl --fail-with-body -H 'Expect:' \
+  http://127.0.0.1:8080/v1/audio/transcriptions \
+  -F model=recognizer \
+  -F 'file=@recording.pcm;headers="Content-Type: audio/pcm;rate=16000;channels=1"'
+```
+
+The default response is `{"text":"Recognized speech."}`. `response_format=text`
+returns UTF-8 plain text. Independent finalized segments appear in input-time
+order, separated by newlines; segment identities break equal-time ties.
+
+| Field | Contract |
+| --- | --- |
+| `model` | Required registered recognition deployment. |
+| `file` | Required nonempty PCM16LE audio with explicit sample geometry; the filename never names a server path. |
+| `language` | Optional UTF-8 language hint interpreted by the package. |
+| `prompt` | Optional UTF-8 context interpreted by the package. |
+| `temperature` | Finite number from 0 through 1, default 0; source policy may restrict it. |
+| `response_format` | `json` by default, or `text`. |
+| `stream` | Omitted or `false` for this finite-upload profile. |
+
+The file part's `Content-Type` declares both the sample rate and interleaved
+channel count. They must match the selected package's input geometry. These
+bytes contain whole PCM16 frames without a WAV header. Missing, duplicate, or
+mismatched geometry and partial frames reject; this profile performs no
+resampling or channel conversion. WAV, MP3, FLAC, and other encoded uploads
+reject. PCM input and PCM speech output require no audio codec dependency.
+
+The request-body byte limit and source-defined input-frame limit apply
+independently. An overlong recording rejects before model admission instead of
+truncating. Conversion stages a bounded number of frames on the shared CPU
+executor, independently of the total recording length.
+
+Uploads may share numerical batches while retaining independent sample clocks,
+model histories, and transcript state. A disconnect cancels that request;
+upload bytes and model storage remain owned until accepted work retires.
+Concurrent requests continue through their own input and output credit.
+
+Unknown or duplicate fields, unsupported response formats and `stream=true`
+reject. The finite profile does not emit provisional hypotheses, word timing or
+speaker labels. The [recognition source contract](model-programs.md#recognize-continuing-audio)
+preserves revisions and optional alignment/diarization evidence for typed
+consumers. A chunked HTTP upload still completes before recognition begins;
+it is not an appendable microphone session.
 
 ## Embeddings
 

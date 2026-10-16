@@ -17,13 +17,18 @@
 
 namespace {
 
-struct SignalObserver {
-  SignalObserver() { iree_notification_initialize(&notification); }
-  ~SignalObserver() { iree_notification_deinitialize(&notification); }
+struct loom_serve_test_signal_observer_t {
+  loom_serve_test_signal_observer_t() {
+    iree_notification_initialize(&notification);
+  }
+  ~loom_serve_test_signal_observer_t() {
+    iree_notification_deinitialize(&notification);
+  }
 
   iree_async_signal_callback_t Callback() {
     return {[](void* self, iree_async_signal_t signal) {
-              auto* observer = static_cast<SignalObserver*>(self);
+              auto* observer =
+                  static_cast<loom_serve_test_signal_observer_t*>(self);
               observer->last.store(signal);
               observer->count.fetch_add(1);
               iree_notification_post(&observer->notification, IREE_ALL_WAITERS);
@@ -35,7 +40,8 @@ struct SignalObserver {
     iree_notification_await(
         &notification,
         [](void* self) {
-          auto* observer = static_cast<SignalObserver*>(self);
+          auto* observer =
+              static_cast<loom_serve_test_signal_observer_t*>(self);
           return observer->count.load() == observer->expected;
         },
         this, iree_infinite_timeout());
@@ -57,8 +63,8 @@ TEST(ServingSignalsTest, SubscriptionsRetireWithoutStoppingSharedProgress) {
   IREE_ASSERT_OK(iree_async_proactor_pool_create(
       1, nullptr, iree_async_proactor_pool_options_default(),
       iree_allocator_system(), &pool));
-  SignalObserver first;
-  SignalObserver second;
+  loom_serve_test_signal_observer_t first;
+  loom_serve_test_signal_observer_t second;
   loom_serve_signals_t* first_signals = nullptr;
   loom_serve_signals_t* second_signals = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,

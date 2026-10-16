@@ -172,16 +172,16 @@ static iree_status_t loom_serve_http_metrics_parameters(
   return status;
 }
 
-typedef struct metrics_counter_field_t {
+typedef struct loom_serve_metrics_counter_field_t {
   // Suffix shared by model and server Prometheus metric names.
   const char* name;
   // Counter units and ownership semantics.
   const char* description;
   // Byte offset of a uint64_t in loom_serve_telemetry_counters_t.
   iree_host_size_t offset;
-} metrics_counter_field_t;
+} loom_serve_metrics_counter_field_t;
 
-static const metrics_counter_field_t metrics_counter_fields[] = {
+static const loom_serve_metrics_counter_field_t metrics_counter_fields[] = {
     {"requests", "Requests reaching a model protocol, including rejections.",
      offsetof(loom_serve_telemetry_counters_t, requests)},
     {"completed", "Successful responses copied into the HTTP carrier.",
@@ -203,7 +203,7 @@ static const metrics_counter_field_t metrics_counter_fields[] = {
 
 static uint64_t loom_serve_http_metrics_counter_value(
     const loom_serve_telemetry_counters_t* counters,
-    const metrics_counter_field_t* field) {
+    const loom_serve_metrics_counter_field_t* field) {
   return *(const uint64_t*)((const uint8_t*)counters + field->offset);
 }
 
@@ -220,7 +220,8 @@ static iree_status_t loom_serve_http_metrics_counters(
       available));
   for (iree_host_size_t j = 0; j < IREE_ARRAYSIZE(metrics_counter_fields);
        ++j) {
-    const metrics_counter_field_t* field = &metrics_counter_fields[j];
+    const loom_serve_metrics_counter_field_t* field =
+        &metrics_counter_fields[j];
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output,
         "# HELP loom_serve_model_%s_total %s\n"

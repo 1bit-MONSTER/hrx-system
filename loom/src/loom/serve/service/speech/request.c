@@ -12,7 +12,7 @@
 #include "iree/base/internal/json.h"
 #include "iree/base/internal/unicode.h"
 
-typedef struct speech_field_t {
+typedef struct loom_serve_speech_field_t {
   // Literal decoded protocol key.
   const char* name;
   // Accepted JSON value types as bit positions.
@@ -21,14 +21,14 @@ typedef struct speech_field_t {
   iree_string_view_t value;
   // Actual JSON type, set only when value is present.
   iree_json_value_type_t type;
-} speech_field_t;
+} loom_serve_speech_field_t;
 
-typedef struct speech_fields_t {
+typedef struct loom_serve_speech_fields_t {
   // Number of recognized fields in values.
   iree_host_size_t count;
   // Mutable parser results, borrowed during object enumeration.
-  speech_field_t* values;
-} speech_fields_t;
+  loom_serve_speech_field_t* values;
+} loom_serve_speech_fields_t;
 
 #define SPEECH_STRING (1u << IREE_JSON_VALUE_TYPE_STRING)
 #define SPEECH_NUMBER (1u << IREE_JSON_VALUE_TYPE_NUMBER)
@@ -38,7 +38,7 @@ static iree_status_t loom_serve_speech_field_visit(void* user_data,
                                                    iree_string_view_t key,
                                                    iree_json_value_type_t type,
                                                    iree_string_view_t value) {
-  speech_fields_t* fields = user_data;
+  loom_serve_speech_fields_t* fields = user_data;
   // Every recognized protocol key fits here, including after JSON unescaping.
   char decoded[16];
   iree_host_size_t length = 0;
@@ -54,7 +54,7 @@ static iree_status_t loom_serve_speech_field_visit(void* user_data,
   }
   key = iree_make_string_view(decoded, length);
   for (iree_host_size_t i = 0; i < fields->count; ++i) {
-    speech_field_t* field = &fields->values[i];
+    loom_serve_speech_field_t* field = &fields->values[i];
     if (iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       if (field->value.data || !(field->types & (1u << type))) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -118,15 +118,16 @@ static iree_status_t loom_serve_speech_request_decode(
                             "trailing speech JSON");
   }
   enum { INPUT, VOICE, INSTRUCTIONS, MODEL, SPEED, SEED, FORMAT, STREAM };
-  speech_field_t values[] = {{"input", SPEECH_STRING},
-                             {"voice", SPEECH_STRING | SPEECH_OBJECT},
-                             {"instructions", SPEECH_STRING},
-                             {"model", SPEECH_STRING},
-                             {"speed", SPEECH_NUMBER},
-                             {"seed", SPEECH_NUMBER | SPEECH_STRING},
-                             {"response_format", SPEECH_STRING},
-                             {"stream_format", SPEECH_STRING}};
-  speech_fields_t fields = {IREE_ARRAYSIZE(values), values};
+  loom_serve_speech_field_t values[] = {
+      {"input", SPEECH_STRING},
+      {"voice", SPEECH_STRING | SPEECH_OBJECT},
+      {"instructions", SPEECH_STRING},
+      {"model", SPEECH_STRING},
+      {"speed", SPEECH_NUMBER},
+      {"seed", SPEECH_NUMBER | SPEECH_STRING},
+      {"response_format", SPEECH_STRING},
+      {"stream_format", SPEECH_STRING}};
+  loom_serve_speech_fields_t fields = {IREE_ARRAYSIZE(values), values};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       object, loom_serve_speech_field_visit, &fields));
   if (!values[INPUT].value.data || !values[VOICE].value.data ||
@@ -173,8 +174,8 @@ static iree_status_t loom_serve_speech_request_decode(
   }
   iree_string_view_t voice = values[VOICE].value;
   if (values[VOICE].type == IREE_JSON_VALUE_TYPE_OBJECT) {
-    speech_field_t id = {"id", SPEECH_STRING};
-    speech_fields_t voice_fields = {1, &id};
+    loom_serve_speech_field_t id = {"id", SPEECH_STRING};
+    loom_serve_speech_fields_t voice_fields = {1, &id};
     IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
         voice, loom_serve_speech_field_visit, &voice_fields));
     if (!id.value.data) {

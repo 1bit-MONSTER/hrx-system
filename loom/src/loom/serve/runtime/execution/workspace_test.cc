@@ -113,7 +113,7 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
  protected:
   static constexpr iree_device_size_t kSlabBytes = 4096;
 
-  struct Domain {
+  struct loom_serve_test_workspace_domain_t {
     // Owned timeline; queues may be shared with another independent timeline.
     loom_serve_execution_t* execution = nullptr;
     // Caller-owned allocation view, released before joining consumers.
@@ -177,7 +177,8 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
     iree_hal_pool_release(backing_pool_);
     backing_pool_ = nullptr;
     IREE_ASSERT_OK(loom_serve_workspace_reserve(workspace_, kSlabBytes, 16));
-    Domain* domains[] = {&producer_, &consumer_, &independent_};
+    loom_serve_test_workspace_domain_t* domains[] = {&producer_, &consumer_,
+                                                     &independent_};
     for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(domains); ++i) {
       auto* device = loom_serve_device_group_at(group_, i % 2);
       IREE_ASSERT_OK(loom_serve_execution_create(
@@ -216,14 +217,14 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
     loom_serve_host_release(host_);
   }
 
-  iree_status_t Allocate(Domain& domain) {
+  iree_status_t Allocate(loom_serve_test_workspace_domain_t& domain) {
     const auto request =
         iree_hal_make_pool_reservation_request(sizeof(domain.output), 16);
     return loom_serve_execution_alloca(domain.execution, &request,
                                        &domain.buffer);
   }
 
-  iree_status_t DownloadAndRelease(Domain& domain) {
+  iree_status_t DownloadAndRelease(loom_serve_test_workspace_domain_t& domain) {
     const iree_hal_transfer_operation_t download = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
         .download =
@@ -294,11 +295,11 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
   // Shared geometry/accounting owner, independent of device records.
   loom_serve_workspace_t* workspace_ = nullptr;
   // First-device producer of an escaping allocation.
-  Domain producer_;
+  loom_serve_test_workspace_domain_t producer_;
   // Second-device final consumer of the producer's allocation.
-  Domain consumer_;
+  loom_serve_test_workspace_domain_t consumer_;
   // Independent first-device work using the same backing and worker budget.
-  Domain independent_;
+  loom_serve_test_workspace_domain_t independent_;
   // Test-controlled final reader readiness, opened before all teardown joins.
   iree_hal_semaphore_t* gate_ = nullptr;
   // Upload payload owned until all producer work has retired.

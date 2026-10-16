@@ -16,7 +16,7 @@
 
 namespace {
 
-struct AllocationState {
+struct loom_serve_test_http_receive_allocation_state_t {
   // Allocation attempts, including the one selected for failure injection.
   size_t attempts = 0;
   // Successful allocations that have not yet been freed.
@@ -27,7 +27,8 @@ struct AllocationState {
 
   static iree_status_t Control(void* self, iree_allocator_command_t command,
                                const void* params, void** inout_ptr) {
-    auto* state = static_cast<AllocationState*>(self);
+    auto* state =
+        static_cast<loom_serve_test_http_receive_allocation_state_t*>(self);
     const bool allocate = command == IREE_ALLOCATOR_COMMAND_MALLOC ||
                           command == IREE_ALLOCATOR_COMMAND_CALLOC;
     if (allocate && state->attempts++ == state->fail_at) {
@@ -67,7 +68,7 @@ class HttpReceiveCacheTest : public ::testing::Test {
   }
 
   // Records only cache-owned allocations, not concurrent proactor operations.
-  AllocationState allocations_;
+  loom_serve_test_http_receive_allocation_state_t allocations_;
   // Shared progress owner, retained independently by the cache.
   iree_async_proactor_pool_t* pool_ = nullptr;
   // Caller reference to the registration/progress entry.

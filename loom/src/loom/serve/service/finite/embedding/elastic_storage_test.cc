@@ -378,7 +378,7 @@ TEST_F(ElasticEmbeddingServiceTest,
   ASSERT_NO_FATAL_FAILURE(CreateService(0));
   const int peer = Send(R"({"model":"fixture","input":"a"})");
   ASSERT_NO_FATAL_FAILURE(Accept(peer));
-  ModelLifecycle removal;
+  loom_serve_test_embedding_model_lifecycle_t removal;
   removal.model = std::exchange(retained_, nullptr);
   removal.service = &interface_;
   iree_status_t removal_status;
@@ -400,7 +400,7 @@ TEST_F(ElasticEmbeddingServiceTest,
   // Final removal returns the shared model pool to empty without tearing down
   // its device or host executor. Only private command cache backing may remain.
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
-  ModelLifecycle final_removal;
+  loom_serve_test_embedding_model_lifecycle_t final_removal;
   final_removal.model = std::exchange(model_, nullptr);
   removal_status = final_removal.Retire(device_);
   model_ = final_removal.model;

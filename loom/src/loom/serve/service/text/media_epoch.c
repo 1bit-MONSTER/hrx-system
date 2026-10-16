@@ -15,7 +15,7 @@ enum {
       LOOM_SERVE_TEXT_MEDIA_EPOCH_FIELD_COUNT * sizeof(uint32_t),
 };
 
-typedef struct media_epoch_layout_t {
+typedef struct loom_serve_text_media_epoch_layout_t {
   // Projected rows intersecting the scheduled text partition.
   iree_host_size_t feature_count;
   // Image intersections requiring metadata and producer readiness.
@@ -30,7 +30,7 @@ typedef struct media_epoch_layout_t {
   iree_hal_buffer_ref_t previous;
   // Destination byte offset of the previous coalesced range.
   uint32_t previous_offset;
-} media_epoch_layout_t;
+} loom_serve_text_media_epoch_layout_t;
 
 // Arbitrary chunks can begin after a retained prefix or in the middle of an
 // image. Sorted source facts locate that window without rescanning its prefix.
@@ -54,7 +54,7 @@ static iree_host_size_t loom_serve_text_media_epoch_first(
 
 static bool loom_serve_text_media_epoch_layout(
     iree_host_size_t count, const loom_serve_text_span_t* spans,
-    media_epoch_layout_t* layout) {
+    loom_serve_text_media_epoch_layout_t* layout) {
   for (iree_host_size_t i = 0; i < count; ++i) {
     const loom_serve_text_span_t* span = &spans[i];
     if (!span->media) {
@@ -196,7 +196,8 @@ iree_status_t loom_serve_text_media_epoch_initialize(
   const iree_host_size_t packet_length =
       (first_packet_capacity + next_packet_capacity) *
       LOOM_SERVE_TEXT_MEDIA_PACKET_RECORD_BYTES;
-  media_epoch_layout_t layout = {.device_length = (uint32_t)packet_length};
+  loom_serve_text_media_epoch_layout_t layout = {.device_length =
+                                                     (uint32_t)packet_length};
   if (!loom_serve_text_media_epoch_layout(first_span_count, first_spans,
                                           &layout)) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,

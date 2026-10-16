@@ -13,7 +13,7 @@
 
 // Related records share a timestamp but remain independently readable after
 // overwrite. Shared device memory is labeled separately from model ownership.
-typedef struct text_activity_record_t {
+typedef struct loom_serve_text_activity_record_t {
   // Host monotonic start of the current phase.
   uint64_t phase_start;
   // Host monotonic time of the last completed epoch.
@@ -32,9 +32,9 @@ typedef struct text_activity_record_t {
   uint64_t epoch_spans;
   // Token count of the last issued epoch.
   uint64_t epoch_tokens;
-} text_activity_record_t;
+} loom_serve_text_activity_record_t;
 
-typedef struct text_work_record_t {
+typedef struct loom_serve_text_work_record_t {
   // Issued epochs including device continuations.
   uint64_t issued_epochs;
   // Successfully completed epochs.
@@ -51,9 +51,9 @@ typedef struct text_work_record_t {
   uint64_t proposed_tokens;
   // Accepted draft inputs excluding pending anchors.
   uint64_t accepted_inputs;
-} text_work_record_t;
+} loom_serve_text_work_record_t;
 
-typedef struct text_memory_record_t {
+typedef struct loom_serve_text_memory_record_t {
   // Addressable logical token positions.
   uint64_t capacity;
   // Completion credit disjoint from resident positions.
@@ -76,16 +76,16 @@ typedef struct text_memory_record_t {
     // Owned frontiers, including a pending capture.
     uint64_t endpoints;
   } prefix_cache;
-} text_memory_record_t;
+} loom_serve_text_memory_record_t;
 
-typedef struct text_backing_record_t {
+typedef struct loom_serve_text_backing_record_t {
   // Model mutable-state backing excluding weights/workspace.
   loom_serve_memory_statistics_t state;
   // Independently reclaimable model parameter backing.
   loom_serve_memory_statistics_t weights;
-} text_backing_record_t;
+} loom_serve_text_backing_record_t;
 
-typedef struct text_shared_memory_record_t {
+typedef struct loom_serve_text_shared_memory_record_t {
   // Entire shared device owner's retained backing, not this model's charge.
   uint64_t retained_committed_bytes;
   // Physical workspace backing, including reusable idle ranges.
@@ -96,12 +96,12 @@ typedef struct text_shared_memory_record_t {
   uint64_t workspace_slab_count;
   // Cumulative successful workspace reuse across all device users.
   uint64_t workspace_reuse_count;
-} text_shared_memory_record_t;
+} loom_serve_text_shared_memory_record_t;
 
 static iree_status_t loom_serve_text_shared_memory_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  text_shared_memory_record_t value;
+  loom_serve_text_shared_memory_record_t value;
   static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
   memcpy(&value, record->data.words, sizeof(value));
   return iree_string_builder_append_format(
@@ -121,7 +121,7 @@ static const loom_serve_telemetry_event_t text_shared_memory_event = {
 static iree_status_t loom_serve_text_activity_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  text_activity_record_t value;
+  loom_serve_text_activity_record_t value;
   static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
   memcpy(&value, record->data.words, sizeof(value));
   return iree_string_builder_append_format(
@@ -139,7 +139,7 @@ static iree_status_t loom_serve_text_activity_format(
 static iree_status_t loom_serve_text_work_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  text_work_record_t value;
+  loom_serve_text_work_record_t value;
   static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
   memcpy(&value, record->data.words, sizeof(value));
   return iree_string_builder_append_format(
@@ -157,7 +157,7 @@ static iree_status_t loom_serve_text_work_format(
 static iree_status_t loom_serve_text_memory_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  text_memory_record_t value;
+  loom_serve_text_memory_record_t value;
   static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
   memcpy(&value, record->data.words, sizeof(value));
   return iree_string_builder_append_format(
@@ -176,7 +176,7 @@ static iree_status_t loom_serve_text_memory_format(
 static iree_status_t loom_serve_text_backing_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  text_backing_record_t value;
+  loom_serve_text_backing_record_t value;
   static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
   memcpy(&value, record->data.words, sizeof(value));
   return iree_string_builder_append_format(
@@ -228,7 +228,7 @@ static void loom_serve_text_heartbeat_report(
   memcpy(record.data.snapshot.phase, state.phase,
          iree_min(strlen(state.phase), sizeof(record.data.snapshot.phase) - 1));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
-  const text_activity_record_t activity = {
+  const loom_serve_text_activity_record_t activity = {
       .phase_start = state.phase_start,
       .last_completion = state.last_completion,
       .oldest_queued_arrival =
@@ -244,7 +244,7 @@ static void loom_serve_text_heartbeat_report(
   record.event = &text_activity_event;
   memcpy(record.data.words, &activity, sizeof(activity));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
-  const text_work_record_t work = {
+  const loom_serve_text_work_record_t work = {
       .issued_epochs = state.issued_epochs,
       .completed_epochs = state.completed_epochs,
       .traversals = state.traversals,
@@ -257,7 +257,7 @@ static void loom_serve_text_heartbeat_report(
   record.event = &text_work_event;
   memcpy(record.data.words, &work, sizeof(work));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
-  const text_memory_record_t memory = {
+  const loom_serve_text_memory_record_t memory = {
       .capacity = state.pool.capacity,
       .reserved = state.pool.reserved,
       .resident = state.pool.resident,
@@ -270,15 +270,15 @@ static void loom_serve_text_heartbeat_report(
   record.event = &text_memory_event;
   memcpy(record.data.words, &memory, sizeof(memory));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
-  const text_backing_record_t backing = {.state = state.state_memory,
-                                         .weights = state.weight_memory};
+  const loom_serve_text_backing_record_t backing = {
+      .state = state.state_memory, .weights = state.weight_memory};
   memset(&record.data, 0, sizeof(record.data));
   record.event = &text_backing_event;
   memcpy(record.data.words, &backing, sizeof(backing));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
   loom_serve_telemetry_record_weights(heartbeat->stream, record.time_ns,
                                       &state.weight_activity);
-  const text_shared_memory_record_t shared_memory = {
+  const loom_serve_text_shared_memory_record_t shared_memory = {
       .retained_committed_bytes = state.device_memory.retained.committed_bytes,
       .workspace_committed_bytes =
           state.device_memory.workspace.bytes_committed,

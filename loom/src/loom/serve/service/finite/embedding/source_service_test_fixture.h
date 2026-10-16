@@ -30,7 +30,7 @@ namespace loom_serve::testing::embedding {
 const char* SourceServiceDirectStageSource();
 
 // Drives one asynchronous model load or retirement on the serving host.
-struct ModelLifecycle {
+struct loom_serve_test_embedding_model_lifecycle_t {
   static void Wake(void* user_data);
 
   static iree_status_t Drain(iree_task_process_t* process,

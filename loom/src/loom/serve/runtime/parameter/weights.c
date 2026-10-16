@@ -17,7 +17,7 @@
 
 enum { WEIGHT_LANES = 4 };
 
-typedef struct weight_span_t {
+typedef struct loom_serve_weight_span_t {
   // Borrowed key and final byte placement from the compiled command.
   loom_cmd_program_parameter_t parameter;
   // Borrowed final allocation or root view receiving the file bytes.
@@ -26,12 +26,12 @@ typedef struct weight_span_t {
   iree_host_size_t storage_index;
   // Owned cached in-place preparation command, or null for unchanged bytes.
   iree_hal_command_buffer_t* prepare;
-} weight_span_t;
+} loom_serve_weight_span_t;
 
-typedef struct weight_group_t {
+typedef struct loom_serve_weight_group_t {
   // Borrowed consecutive spans in one final allocation. Prepared groups own
   // exactly one tensor; consecutive canonical spans share one readiness edge.
-  weight_span_t* spans;
+  loom_serve_weight_span_t* spans;
   // Transaction-local view retained by all reads and preparations of this
   // group.
   iree_hal_buffer_t* buffer;
@@ -41,14 +41,14 @@ typedef struct weight_group_t {
   uint64_t wait_value;
   // Read and preparation frontier established by this group.
   uint64_t signal_value;
-} weight_group_t;
+} loom_serve_weight_group_t;
 
-typedef struct weight_storage_t {
+typedef struct loom_serve_weight_storage_t {
   // Borrowed final root retained by the caller's output slot.
   iree_hal_buffer_t* buffer;
   // Owned virtual reservation, or NULL for explicitly fixed backing.
   loom_serve_virtual_buffer_t* reservation;
-} weight_storage_t;
+} loom_serve_weight_storage_t;
 
 struct loom_serve_weights_t {
   // Allocator owning the plan and cold activation metadata.
@@ -89,22 +89,22 @@ struct loom_serve_weights_t {
   // Owned original checkpoint provider and imported-file cache.
   iree_io_parameter_provider_t* provider;
   // Owned placement/preparation records, with keys in the owned key storage.
-  weight_span_t* spans;
+  loom_serve_weight_span_t* spans;
   // Owned parameter key bytes, independent of source/JIT lifetime.
   char* keys;
   // Number of initialized placement records, including partial creation.
   iree_host_size_t span_count;
   // Owned unique root records; aliasing output slots do not duplicate these.
-  weight_storage_t* storages;
+  loom_serve_weight_storage_t* storages;
   // Number of initialized unique roots, including partial creation.
   iree_host_size_t storage_count;
   // Activation was enqueued into the owning model's execution domain.
   bool active;
 };
 
-static const weight_span_t* loom_serve_weight_find(iree_host_size_t count,
-                                                   const weight_span_t* spans,
-                                                   iree_string_view_t key) {
+static const loom_serve_weight_span_t* loom_serve_weight_find(
+    iree_host_size_t count, const loom_serve_weight_span_t* spans,
+    iree_string_view_t key) {
   for (iree_host_size_t i = 0; i < count; ++i) {
     if (iree_string_view_equal(spans[i].parameter.key, key)) {
       return &spans[i];
@@ -119,10 +119,10 @@ static const weight_span_t* loom_serve_weight_find(iree_host_size_t count,
 static iree_status_t loom_serve_weight_resolve_root(
     loom_serve_weights_t* weights, const loom_cmd_program_t* program,
     loom_cmd_program_parameter_root_t root, iree_host_size_t* span_count,
-    weight_span_t* spans, iree_allocator_t host_allocator,
+    loom_serve_weight_span_t* spans, iree_allocator_t host_allocator,
     iree_hal_buffer_t** out_buffer) {
   const iree_host_size_t prior_count = *span_count;
-  const weight_span_t* shared = NULL;
+  const loom_serve_weight_span_t* shared = NULL;
   iree_device_size_t origin = 0;
   iree_host_size_t count = 0;
   for (uint32_t i = 0; i < program->parameters.count; ++i) {
@@ -131,7 +131,7 @@ static iree_status_t loom_serve_weight_resolve_root(
     if (parameter.fixed_buffer_index != root.fixed_buffer_index) {
       continue;
     }
-    const weight_span_t* existing =
+    const loom_serve_weight_span_t* existing =
         loom_serve_weight_find(prior_count, spans, parameter.key);
     if (!count++) {
       shared = existing;
@@ -162,7 +162,8 @@ static iree_status_t loom_serve_weight_resolve_root(
                                    root.required_byte_length, host_allocator,
                                    out_buffer);
   }
-  weight_storage_t* storage = &weights->storages[weights->storage_count];
+  loom_serve_weight_storage_t* storage =
+      &weights->storages[weights->storage_count];
   if (weights->pool) {
     IREE_RETURN_IF_ERROR(loom_serve_virtual_buffer_allocate(
         weights->pool, root.required_byte_length, root.minimum_alignment,
@@ -186,7 +187,7 @@ static iree_status_t loom_serve_weight_resolve_root(
     if (parameter.fixed_buffer_index != root.fixed_buffer_index) {
       continue;
     }
-    spans[(*span_count)++] = (weight_span_t){
+    spans[(*span_count)++] = (loom_serve_weight_span_t){
         .parameter = parameter,
         .buffer = *out_buffer,
         .storage_index = storage_index,
@@ -196,14 +197,14 @@ static iree_status_t loom_serve_weight_resolve_root(
 }
 
 // A cached preparer owns the returned VM string until cold planning completes.
-typedef struct weight_preparer_t {
+typedef struct loom_serve_weight_preparer_t {
   // Owned VM result backing the root name, independent of the invocation.
   iree_vm_buffer_t* root;
   // Owned recorded command retaining its executables independently of the JIT.
   iree_hal_command_buffer_t* command;
-} weight_preparer_t;
+} loom_serve_weight_preparer_t;
 
-typedef struct weight_preparation_t {
+typedef struct loom_serve_weight_preparation_t {
   // Initial CPU task; its destruction transfers ownership to the JIT chain.
   loomc_task_t task;
   // Exclusively borrowed unactivated plan through terminal completion.
@@ -220,7 +221,7 @@ typedef struct weight_preparation_t {
   // Borrowed source policy locator with the same lifetime.
   iree_string_view_t policy_path;
   // Owned distinct preparers, queried once before native compilation.
-  weight_preparer_t* preparers;
+  loom_serve_weight_preparer_t* preparers;
   // Number of owned preparers, including partial policy failure.
   iree_host_size_t preparer_count;
   // Current native compilation ordinal; equals count at successful completion.
@@ -235,7 +236,7 @@ typedef struct weight_preparation_t {
   loom_serve_weights_completion_fn_t completion;
   // Borrowed terminal callback payload.
   void* user_data;
-} weight_preparation_t;
+} loom_serve_weight_preparation_t;
 
 static iree_status_t loom_serve_weight_query_preparer(
     loom_serve_program_t* program, const iree_vm_ref_types_t* types,
@@ -298,7 +299,7 @@ static iree_string_view_t loom_serve_weight_preparer_name(
 }
 
 static iree_status_t loom_serve_weight_prepare_policy(
-    weight_preparation_t* job) {
+    loom_serve_weight_preparation_t* job) {
   loom_serve_weights_t* weights = job->weights;
   const iree_allocator_t host_allocator = weights->host_allocator;
   iree_vm_environment_t* environment = NULL;
@@ -349,7 +350,8 @@ static iree_status_t loom_serve_weight_prepare_policy(
         ++p;
       }
       if (p == job->preparer_count) {
-        weight_preparer_t* preparer = &job->preparers[job->preparer_count++];
+        loom_serve_weight_preparer_t* preparer =
+            &job->preparers[job->preparer_count++];
         preparer->root = root;
         root = NULL;
       }
@@ -362,8 +364,8 @@ static iree_status_t loom_serve_weight_prepare_policy(
   return status;
 }
 
-static void loom_serve_weight_preparation_finish(weight_preparation_t* job,
-                                                 iree_status_t status) {
+static void loom_serve_weight_preparation_finish(
+    loom_serve_weight_preparation_t* job, iree_status_t status) {
   loom_serve_weights_t* weights = job->weights;
   const iree_allocator_t host_allocator = weights->host_allocator;
   if (iree_status_is_ok(status)) {
@@ -391,7 +393,8 @@ static void loom_serve_weight_preparation_finish(weight_preparation_t* job,
 static void loom_serve_weight_preparation_compiled(
     void* user_data, iree_status_t status, loom_serve_jit_stage_t* compiled);
 
-static void loom_serve_weight_preparation_next(weight_preparation_t* job) {
+static void loom_serve_weight_preparation_next(
+    loom_serve_weight_preparation_t* job) {
   if (job->preparer_index == job->preparer_count) {
     loom_serve_weight_preparation_finish(job, iree_ok_status());
     return;
@@ -410,8 +413,8 @@ static void loom_serve_weight_preparation_next(weight_preparation_t* job) {
 
 static void loom_serve_weight_preparation_compiled(
     void* user_data, iree_status_t status, loom_serve_jit_stage_t* compiled) {
-  weight_preparation_t* job = user_data;
-  weight_preparer_t* preparer = &job->preparers[job->preparer_index];
+  loom_serve_weight_preparation_t* job = user_data;
+  loom_serve_weight_preparer_t* preparer = &job->preparers[job->preparer_index];
   if (iree_status_is_ok(status)) {
     const loom_cmd_program_requirements_t* requirements =
         &loom_serve_jit_stage_program(compiled)->requirements;
@@ -443,7 +446,7 @@ static void loom_serve_weight_preparation_compiled(
 
 static void loom_serve_weight_preparation_execute(
     loomc_task_t* task, loomc_host_size_t worker_ordinal) {
-  weight_preparation_t* job = (weight_preparation_t*)task;
+  loom_serve_weight_preparation_t* job = (loom_serve_weight_preparation_t*)task;
   const iree_allocator_t host_allocator = job->weights->host_allocator;
   iree_status_t status = loom_serve_weight_prepare_policy(job);
   iree_io_parameter_index_t* index = NULL;
@@ -472,7 +475,7 @@ static void loom_serve_weight_preparation_execute(
 }
 
 static void loom_serve_weight_preparation_destroy(loomc_task_t* task) {
-  weight_preparation_t* job = (weight_preparation_t*)task;
+  loom_serve_weight_preparation_t* job = (loom_serve_weight_preparation_t*)task;
   if (iree_status_is_ok(job->status)) {
     loom_serve_weight_preparation_next(job);
   } else {
@@ -491,7 +494,7 @@ iree_status_t loom_serve_weights_prepare_async(
     const loom_serve_sources_t* sources, iree_string_view_list_t weights_paths,
     iree_string_view_t policy_path,
     loom_serve_weights_completion_fn_t completion, void* user_data) {
-  weight_preparation_t* job = NULL;
+  loom_serve_weight_preparation_t* job = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(weights->host_allocator,
                                              sizeof(*job), (void**)&job));
   loomc_task_initialize(&weight_preparation_vtable, &job->task);
@@ -512,7 +515,7 @@ iree_status_t loom_serve_weights_prepare_async(
   return status;
 }
 
-typedef struct weight_preparation_join_t {
+typedef struct loom_serve_weight_preparation_join_t {
   // Serializes callback publication with the outer owner's final observation.
   iree_slim_mutex_t mutex;
   // Outer application notification, never waited on by a shared worker.
@@ -521,11 +524,11 @@ typedef struct weight_preparation_join_t {
   iree_status_t status;
   // Terminal callback has published all of its state.
   bool ready;
-} weight_preparation_join_t;
+} loom_serve_weight_preparation_join_t;
 
 static void loom_serve_weight_preparation_ready(void* user_data,
                                                 iree_status_t status) {
-  weight_preparation_join_t* join = user_data;
+  loom_serve_weight_preparation_join_t* join = user_data;
   iree_slim_mutex_lock(&join->mutex);
   join->status = status;
   join->ready = true;
@@ -534,7 +537,7 @@ static void loom_serve_weight_preparation_ready(void* user_data,
 }
 
 static bool loom_serve_weight_preparation_is_ready(void* user_data) {
-  weight_preparation_join_t* join = user_data;
+  loom_serve_weight_preparation_join_t* join = user_data;
   iree_slim_mutex_lock(&join->mutex);
   const bool ready = join->ready;
   iree_slim_mutex_unlock(&join->mutex);
@@ -546,7 +549,7 @@ iree_status_t loom_serve_weights_prepare(
     loom_serve_jit_t* jit, iree_hal_command_buffer_mode_t command_mode,
     const loom_serve_sources_t* sources, iree_string_view_list_t weights_paths,
     iree_string_view_t policy_path) {
-  weight_preparation_join_t join = {0};
+  loom_serve_weight_preparation_join_t join = {0};
   iree_slim_mutex_initialize(&join.mutex);
   iree_notification_initialize(&join.notification);
   iree_status_t status = loom_serve_weights_prepare_async(
@@ -566,7 +569,7 @@ iree_status_t loom_serve_weights_prepare(
 static iree_status_t loom_serve_weight_enumerate(
     void* user_data, iree_host_size_t i, iree_string_view_t* out_key,
     iree_io_parameter_span_t* out_span) {
-  const weight_group_t* group = user_data;
+  const loom_serve_weight_group_t* group = user_data;
   const loom_cmd_program_parameter_t parameter = group->spans[i].parameter;
   *out_key = parameter.key;
   *out_span = (iree_io_parameter_span_t){
@@ -580,9 +583,9 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
   IREE_TRACE_ZONE_BEGIN(z0);
   const iree_allocator_t host_allocator = weights->host_allocator;
   const iree_host_size_t span_count = weights->span_count;
-  weight_span_t* spans = weights->spans;
+  loom_serve_weight_span_t* spans = weights->spans;
   iree_hal_device_t* device = weights->device;
-  weight_group_t* groups = NULL;
+  loom_serve_weight_group_t* groups = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_allocator_malloc_array(host_allocator, span_count,
                                       sizeof(*groups), (void**)&groups));
@@ -631,10 +634,10 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
   uint64_t loaded_bytes = 0;
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < span_count; ++i) {
-      const weight_span_t* span = &spans[i];
+      const loom_serve_weight_span_t* span = &spans[i];
       if (!i || span->prepare || spans[i - 1].prepare ||
           span->buffer != spans[i - 1].buffer) {
-        weight_group_t* group = &groups[group_count++];
+        loom_serve_weight_group_t* group = &groups[group_count++];
         group->spans = &spans[i];
         group->buffer = views[span->storage_index];
       }
@@ -642,7 +645,7 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
       loaded_bytes += span->parameter.byte_length;
     }
     for (iree_host_size_t i = 0; i < group_count; ++i) {
-      weight_group_t* group = &groups[i];
+      loom_serve_weight_group_t* group = &groups[i];
       const iree_host_size_t lane = i % WEIGHT_LANES;
       group->wait_value = frontiers[lane];
       group->signal_value = ++frontiers[lane];
@@ -666,8 +669,8 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
   }
   for (iree_host_size_t i = 0; i < group_count && iree_status_is_ok(status);
        ++i) {
-    weight_group_t* group = &groups[i];
-    const weight_span_t* span = group->spans;
+    loom_serve_weight_group_t* group = &groups[i];
+    const loom_serve_weight_span_t* span = group->spans;
     if (!span->prepare) {
       continue;
     }

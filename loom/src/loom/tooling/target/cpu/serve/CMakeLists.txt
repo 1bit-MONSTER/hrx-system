@@ -140,6 +140,55 @@ iree_py_test(
 endif()
 
 if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+iree_py_test(
+  NAME
+    recognition_client_test
+  MAIN
+    "../../../../serve/service/recognition/client_test.py"
+  SRCS
+    "../../../../serve/service/recognition/client_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::tooling::target::cpu::serve::loom-serve-test-tool>}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+    "loom::tooling::target::cpu::serve::loom-serve-test-tool"
+  DEPS
+    loom::serve::testing::http
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_recognition_http_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::recognition::source_http_tests
+  ARGS
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     source_image_service_test
@@ -157,6 +206,67 @@ loom_cc_test(
     loom::serve::service::image::source_service_tests
   ENV
     "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_recognition_model_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::recognition::source_model_tests
+  ARGS
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_recognition_service_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::recognition::source_service_tests
+  ARGS
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_recognition_service_parallel_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::recognition::source_service_tests
+  ARGS
+    "--test_workers=4"
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )

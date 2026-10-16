@@ -34,11 +34,12 @@ namespace {
 
 // Models the loader's owner turn: submit private policy/index/JIT preparation
 // and return so that the same sole worker can execute the accepted work.
-struct Preparation {
+struct loom_serve_test_weight_preparation_t {
   static iree_status_t Submit(iree_task_process_t* process,
                               const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<Preparation*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_preparation_t*>(process->user_data);
     auto status = loom_serve_weights_prepare_async(
         self->weights, self->host, self->jit,
         IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, &self->sources, self->checkpoints,
@@ -52,7 +53,7 @@ struct Preparation {
   }
 
   static void Complete(void* user_data, iree_status_t status) {
-    auto* self = static_cast<Preparation*>(user_data);
+    auto* self = static_cast<loom_serve_test_weight_preparation_t*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->status = status;
     self->ready = true;
@@ -60,7 +61,8 @@ struct Preparation {
   }
 
   static void Release(iree_task_process_t* process) {
-    auto* self = static_cast<Preparation*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_preparation_t*>(process->user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->released = true;
     self->condition.notify_one();
@@ -106,11 +108,12 @@ struct Preparation {
 // The only worker submits activation and native consumption, then returns.
 // Another task must run to release consumption's predecessor. Completion is a
 // public proactor multi-wait, not a worker join or a driver-specific callback.
-struct Activation {
+struct loom_serve_test_weight_activation_t {
   static iree_status_t Submit(iree_task_process_t* process,
                               const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<Activation*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_activation_t*>(process->user_data);
     auto status =
         loom_serve_residency_try_acquire(self->residency, &self->admitted);
     if (iree_status_is_ok(status) && !self->admitted) {
@@ -164,7 +167,8 @@ struct Activation {
   static iree_status_t Unblock(iree_task_process_t* process,
                                const iree_task_worker_context_t* context,
                                iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<Activation*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_activation_t*>(process->user_data);
     auto status = iree_hal_semaphore_signal(self->gate, 1, nullptr);
     if (!iree_status_is_ok(status)) {
       iree_hal_semaphore_fail(self->gate, iree_status_clone(status));
@@ -180,7 +184,7 @@ struct Activation {
 
   static void Ready(void* user_data, iree_async_operation_t* operation,
                     iree_status_t status, iree_async_completion_flags_t flags) {
-    auto* self = static_cast<Activation*>(user_data);
+    auto* self = static_cast<loom_serve_test_weight_activation_t*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->status = iree_status_join(self->status, status);
     self->ready = true;
@@ -188,7 +192,8 @@ struct Activation {
   }
 
   static void Release(iree_task_process_t* process) {
-    auto* self = static_cast<Activation*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_activation_t*>(process->user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     ++self->released;
     self->condition.notify_one();
@@ -249,9 +254,10 @@ struct Activation {
 
 // Outer owner notification for explicit warmup. Advance joins the production
 // callback's last access before this notification or the operation can die.
-struct ActivationWake {
+struct loom_serve_test_weight_activation_wake_t {
   static void Notify(void* user_data) {
-    auto* self = static_cast<ActivationWake*>(user_data);
+    auto* self =
+        static_cast<loom_serve_test_weight_activation_wake_t*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->ready = true;
     self->condition.notify_one();
@@ -428,7 +434,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
         loom_serve_device_storage_pool(device_owner_), pool_, shared_count,
         root_count, roots, host_allocator_, plan));
     const auto before = loom_serve_weights_statistics(*plan);
-    Preparation preparation;
+    loom_serve_test_weight_preparation_t preparation;
     preparation.weights = *plan;
     preparation.host = loom_serve_device_host(device_owner_);
     preparation.jit = jit_;
@@ -650,7 +656,7 @@ TEST_P(WeightsTest, OneWorkerActivatesAndConsumesThroughAsyncTimelineWait) {
       IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, nullptr, buffers_[0].data(),
       &commands_[0]));
   auto* host = loom_serve_device_host(device_owner_);
-  Activation activation;
+  loom_serve_test_weight_activation_t activation;
   activation.executor = loom_serve_host_executor(host);
   IREE_ASSERT_OK(iree_async_proactor_pool_get(
       loom_serve_host_proactor_pool(host), 0, &activation.proactor));
@@ -962,12 +968,13 @@ TEST_P(WeightsTest, ExplicitActivationCancellationJoinsAcceptedReadiness) {
   uint64_t gate_value = 1;
   IREE_ASSERT_OK(
       loom_serve_execution_barrier(execution_, {1, &gate, &gate_value}));
-  ActivationWake wake;
+  loom_serve_test_weight_activation_wake_t wake;
   loom_serve_activation_t* activation = nullptr;
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[0],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, host_allocator_, &activation));
+      loom_serve_test_weight_activation_wake_t::Notify, &wake, host_allocator_,
+      &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_LOADING);
@@ -1010,12 +1017,13 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   IREE_ASSERT_OK(Register(1, 2, 1));
   IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[0]));
   IREE_ASSERT_OK(loom_serve_residency_await(residencies_[0]));
-  ActivationWake wake;
+  loom_serve_test_weight_activation_wake_t wake;
   loom_serve_activation_t* activation = nullptr;
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[1],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, host_allocator_, &activation));
+      loom_serve_test_weight_activation_wake_t::Notify, &wake, host_allocator_,
+      &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_WAITING);
@@ -1032,11 +1040,13 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   loom_serve_residency_release(residencies_[0]);
   loom_serve_residency_release(residencies_[0]);
   // A new operation can now reclaim the unpinned peer and finish normally.
-  loom_serve_memory_pool_set_observer(pool_, ActivationWake::Notify, &wake);
+  loom_serve_memory_pool_set_observer(
+      pool_, loom_serve_test_weight_activation_wake_t::Notify, &wake);
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[1],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, host_allocator_, &activation));
+      loom_serve_test_weight_activation_wake_t::Notify, &wake, host_allocator_,
+      &activation));
   {
     loom_serve::testing::MaintenanceGate gate(
         loom_serve_device_storage_pool(device_owner_)->maintenance);
@@ -1059,12 +1069,13 @@ TEST_P(WeightsTest, RejectedWarmupKeepsAcceptedLoadsProtectedUntilRetirement) {
   const auto root = Root(0, 0);
   IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
-  ActivationWake wake;
+  loom_serve_test_weight_activation_wake_t wake;
   loom_serve_activation_t* activation = nullptr;
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[0],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, host_allocator_, &activation));
+      loom_serve_test_weight_activation_wake_t::Notify, &wake, host_allocator_,
+      &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         loom_serve_activation_advance(activation, 0, &phase));
@@ -1388,7 +1399,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(
       pool_, kSlabBytes, 256, &state_statistics_, &state_));
   IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(state_, 0, kSlabBytes));
-  struct CacheOwner {
+  struct loom_serve_test_weight_cache_owner_t {
     // Logical ownership can be released once, independently of physical trim.
     bool retained = true;
     // Accepted maintenance keeps backing alive until its owner retires it.
@@ -1400,7 +1411,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
       residencies_[1],
       {&owner,
        [](void* self) {
-         auto* owner = static_cast<CacheOwner*>(self);
+         auto* owner = static_cast<loom_serve_test_weight_cache_owner_t*>(self);
          if (!owner->retained) {
            return false;
          }
@@ -1409,7 +1420,10 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
          ++owner->requests;
          return true;
        },
-       [](void* self) { return static_cast<CacheOwner*>(self)->pending; }});
+       [](void* self) {
+         return static_cast<loom_serve_test_weight_cache_owner_t*>(self)
+             ->pending;
+       }});
   auto* cache = loom_serve_device_residency_cache(device_owner_);
   loom_serve_residency_admission_t admission;
   IREE_ASSERT_OK(Compile(1, "raw"));

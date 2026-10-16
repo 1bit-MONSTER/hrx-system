@@ -292,7 +292,7 @@ TEST_F(SourceEmbeddingServiceTest, TokenizerFailureRetiresCompiledModel) {
   };
   const int resident = Send(R"({"model":"fixture","input":"a"})");
   ASSERT_NO_FATAL_FAILURE(Accept(resident));
-  ModelLifecycle load;
+  loom_serve_test_embedding_model_lifecycle_t load;
   load.service = &interface_;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND, load.Run(device_, options));
   EXPECT_EQ(load.model, nullptr);
@@ -324,7 +324,7 @@ TEST_F(SourceEmbeddingServiceTest,
     };
     const int resident = Send(R"({"model":"fixture","input":"a"})");
     ASSERT_NO_FATAL_FAILURE(Accept(resident));
-    ModelLifecycle load;
+    loom_serve_test_embedding_model_lifecycle_t load;
     load.service = &interface_;
     load.cancel_after_start = cancel;
     iree_status_t status;

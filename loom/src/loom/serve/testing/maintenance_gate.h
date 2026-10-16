@@ -37,7 +37,7 @@ class MaintenanceGate {
   }
 
  private:
-  struct Work {
+  struct loom_serve_test_maintenance_work_t {
     // Native executor queue entry, first for the callback's enclosing cast.
     iree_hal_memory_maintenance_entry_t entry = {};
     // Borrowed gate, joined by its destructor.
@@ -45,7 +45,8 @@ class MaintenanceGate {
   };
 
   static void Run(iree_hal_memory_maintenance_entry_t* entry) {
-    auto* self = reinterpret_cast<Work*>(entry)->owner;
+    auto* self =
+        reinterpret_cast<loom_serve_test_maintenance_work_t*>(entry)->owner;
     std::unique_lock<std::mutex> lock(self->mutex_);
     self->entered_ = true;
     self->condition_.notify_all();
@@ -55,7 +56,7 @@ class MaintenanceGate {
   }
 
   // Queued work remains alive until native callback retirement.
-  Work work_;
+  loom_serve_test_maintenance_work_t work_;
   // Serializes callback entry, release, and final gate access.
   std::mutex mutex_;
   // Synchronizes only the outer test thread and native cold executor.

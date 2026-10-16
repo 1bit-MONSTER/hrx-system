@@ -148,7 +148,7 @@ class SourceDecisionServiceTest : public ::testing::Test {
     bool progress = false;
     IREE_EXPECT_OK(interfaces_[0].advance(interfaces_[0].self, 0, &progress));
     if (interfaces_[0].is_active(interfaces_[0].self)) {
-      struct Wait {
+      struct loom_serve_test_decision_wait_t {
         // Shared release generation.
         std::atomic<uint64_t>* wakes;
         // Last observed generation before this owner turn.
@@ -157,7 +157,8 @@ class SourceDecisionServiceTest : public ::testing::Test {
       iree_notification_await(
           &notification_,
           [](void* data) {
-            const auto* wait = static_cast<Wait*>(data);
+            const auto* wait =
+                static_cast<loom_serve_test_decision_wait_t*>(data);
             return wait->wakes->load() > wait->previous;
           },
           &wait, iree_infinite_timeout());

@@ -18,24 +18,24 @@
 
 enum { DECISION_MAX_QUESTIONS = 1024, DECISION_MAX_OPTIONS = 255 };
 
-typedef enum decision_kind_e {
+typedef enum loom_serve_decision_kind_e {
   DECISION_CHOICE = 0,
   DECISION_SCORE = 1,
   DECISION_NOUL = 2,
-} decision_kind_t;
+} loom_serve_decision_kind_t;
 
-typedef struct decision_question_t {
+typedef struct loom_serve_decision_question_t {
   // Owned decoded question ID; source sees its original escaped range.
   iree_string_view_t id;
   // Protocol answer family, independent of the model architecture.
-  decision_kind_t kind;
+  loom_serve_decision_kind_t kind;
   // First option in the request's contiguous option table.
   iree_host_size_t first_option;
   // Number of options and expected probabilities for this question.
   iree_host_size_t option_count;
-} decision_question_t;
+} loom_serve_decision_question_t;
 
-typedef struct decision_option_t {
+typedef struct loom_serve_decision_option_t {
   // Owned decoded choice ID; empty for implicit score/noul ordinals.
   iree_string_view_t id;
   // Criterion type, preserving structured score legends.
@@ -44,24 +44,24 @@ typedef struct decision_option_t {
   iree_host_size_t offset;
   // Criterion bytes; strings exclude quotes and retain escapes.
   iree_host_size_t length;
-} decision_option_t;
+} loom_serve_decision_option_t;
 
-typedef struct decision_request_t {
+typedef struct loom_serve_decision_request_t {
   // Initial shared request member, including the owned source packet.
   loom_serve_finite_request_t base;
   // Allocator owning decoded IDs and native association tables.
   iree_allocator_t host_allocator;
   // Owned initialized question records in original request order.
-  decision_question_t* questions;
+  loom_serve_decision_question_t* questions;
   // Owned option records in each question's original public order.
-  decision_option_t* options;
+  loom_serve_decision_option_t* options;
   // Number of initialized option records.
   iree_host_size_t option_count;
   // Borrowed original JSON inside base.input, stable through encoding.
   iree_string_view_t json;
-} decision_request_t;
+} loom_serve_decision_request_t;
 
-typedef struct decision_field_t {
+typedef struct loom_serve_decision_field_t {
   // Literal schema key; escaped schema keys are not part of this profile.
   const char* name;
   // Permitted JSON types as a bitmask.
@@ -70,22 +70,22 @@ typedef struct decision_field_t {
   iree_json_value_type_t type;
   // Borrowed original value; null data means absent.
   iree_string_view_t value;
-} decision_field_t;
+} loom_serve_decision_field_t;
 
-typedef struct decision_fields_t {
+typedef struct loom_serve_decision_fields_t {
   // Number of declared fields.
   iree_host_size_t count;
   // Borrowed mutable destinations.
-  decision_field_t* fields;
-} decision_fields_t;
+  loom_serve_decision_field_t* fields;
+} loom_serve_decision_fields_t;
 
 static iree_status_t loom_serve_decision_field(void* self,
                                                iree_string_view_t key,
                                                iree_json_value_type_t type,
                                                iree_string_view_t value) {
-  decision_fields_t* fields = self;
+  loom_serve_decision_fields_t* fields = self;
   for (iree_host_size_t i = 0; i < fields->count; ++i) {
-    decision_field_t* field = &fields->fields[i];
+    loom_serve_decision_field_t* field = &fields->fields[i];
     if (!iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       continue;
     }
@@ -103,10 +103,10 @@ static iree_status_t loom_serve_decision_field(void* self,
                           key.data);
 }
 
-static iree_status_t loom_serve_decision_fields(iree_string_view_t object,
-                                                iree_host_size_t count,
-                                                decision_field_t* fields) {
-  decision_fields_t state = {count, fields};
+static iree_status_t loom_serve_decision_fields(
+    iree_string_view_t object, iree_host_size_t count,
+    loom_serve_decision_field_t* fields) {
+  loom_serve_decision_fields_t state = {count, fields};
   return iree_json_enumerate_object_typed(object, loom_serve_decision_field,
                                           &state);
 }
@@ -164,11 +164,11 @@ static iree_status_t loom_serve_decision_record(iree_string_builder_t* builder,
   return iree_ok_status();
 }
 
-typedef struct decision_parser_t {
+typedef struct loom_serve_decision_parser_t {
   // Borrowed complete request JSON during synchronous initialization.
   iree_string_view_t body;
   // Owned request under construction.
-  decision_request_t* request;
+  loom_serve_decision_request_t* request;
   // Native option records under construction; ownership transfers even on
   // error.
   iree_string_builder_t options;
@@ -176,17 +176,16 @@ typedef struct decision_parser_t {
   iree_string_builder_t question_records;
   // Indexed source option records with JSON-relative offsets.
   iree_string_builder_t option_records;
-} decision_parser_t;
+} loom_serve_decision_parser_t;
 
-static iree_status_t loom_serve_decision_option(decision_parser_t* parser,
-                                                iree_string_view_t key,
-                                                iree_json_value_type_t type,
-                                                iree_string_view_t value) {
-  decision_request_t* request = parser->request;
-  decision_option_t* option = NULL;
+static iree_status_t loom_serve_decision_option(
+    loom_serve_decision_parser_t* parser, iree_string_view_t key,
+    iree_json_value_type_t type, iree_string_view_t value) {
+  loom_serve_decision_request_t* request = parser->request;
+  loom_serve_decision_option_t* option = NULL;
   IREE_RETURN_IF_ERROR(iree_string_builder_append_inline(
       &parser->options, sizeof(*option), (char**)&option));
-  *option = (decision_option_t){
+  *option = (loom_serve_decision_option_t){
       .type = type,
       .offset =
           value.data ? (iree_host_size_t)(value.data - parser->body.data) : 0,
@@ -214,8 +213,8 @@ static bool loom_serve_decision_is_content(iree_json_value_type_t type) {
 static iree_status_t loom_serve_decision_choice_option(
     void* self, iree_string_view_t key, iree_json_value_type_t type,
     iree_string_view_t value) {
-  decision_parser_t* parser = self;
-  const decision_question_t* question =
+  loom_serve_decision_parser_t* parser = self;
+  const loom_serve_decision_question_t* question =
       &parser->request->questions[parser->request->base.count - 1];
   if ((!loom_serve_decision_is_content(type) &&
        type != IREE_JSON_VALUE_TYPE_NULL) ||
@@ -243,15 +242,16 @@ static iree_status_t loom_serve_decision_question(void* self,
                                                   iree_string_view_t key,
                                                   iree_json_value_type_t type,
                                                   iree_string_view_t value) {
-  decision_parser_t* parser = self;
-  decision_request_t* request = parser->request;
-  decision_question_t* question = &request->questions[request->base.count++];
+  loom_serve_decision_parser_t* parser = self;
+  loom_serve_decision_request_t* request = parser->request;
+  loom_serve_decision_question_t* question =
+      &request->questions[request->base.count++];
   IREE_RETURN_IF_ERROR(
       loom_serve_decision_id(key, request->host_allocator, &question->id));
   const uint32_t content = (1u << IREE_JSON_VALUE_TYPE_STRING) |
                            (1u << IREE_JSON_VALUE_TYPE_OBJECT) |
                            (1u << IREE_JSON_VALUE_TYPE_ARRAY);
-  decision_field_t fields[] = {
+  loom_serve_decision_field_t fields[] = {
       {.name = "type", .types = 1u << IREE_JSON_VALUE_TYPE_STRING},
       {.name = "instructions", .types = content},
       {.name = "criteria",
@@ -290,8 +290,9 @@ static iree_status_t loom_serve_decision_question(void* self,
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "choice requires at least one option");
     }
-    const decision_option_t* options =
-        (const decision_option_t*)iree_string_builder_buffer(&parser->options);
+    const loom_serve_decision_option_t* options =
+        (const loom_serve_decision_option_t*)iree_string_builder_buffer(
+            &parser->options);
     iree_string_view_t ids[DECISION_MAX_OPTIONS];
     for (iree_host_size_t i = 0; i < count; ++i) {
       ids[i] = options[question->first_option + i].id;
@@ -311,8 +312,9 @@ static iree_status_t loom_serve_decision_question(void* self,
     }
   } else if (iree_string_view_equal(kind, IREE_SV("noul"))) {
     question->kind = DECISION_NOUL;
-    decision_field_t criteria[] = {{.name = "false", .types = content},
-                                   {.name = "true", .types = content}};
+    loom_serve_decision_field_t criteria[] = {
+        {.name = "false", .types = content},
+        {.name = "true", .types = content}};
     if (fields[2].value.data) {
       if (fields[2].type != IREE_JSON_VALUE_TYPE_OBJECT) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -360,9 +362,10 @@ static iree_status_t loom_serve_decision_count(void* self,
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_decision_packet(decision_parser_t* parser,
-                                                const decision_field_t* state) {
-  decision_request_t* request = parser->request;
+static iree_status_t loom_serve_decision_packet(
+    loom_serve_decision_parser_t* parser,
+    const loom_serve_decision_field_t* state) {
+  loom_serve_decision_request_t* request = parser->request;
   const iree_string_view_t questions =
       iree_string_builder_view(&parser->question_records);
   const iree_string_view_t options =
@@ -440,8 +443,9 @@ static iree_status_t loom_serve_decision_require_json(iree_string_view_t body) {
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_decision_parse(decision_parser_t* parser) {
-  decision_request_t* request = parser->request;
+static iree_status_t loom_serve_decision_parse(
+    loom_serve_decision_parser_t* parser) {
+  loom_serve_decision_request_t* request = parser->request;
   IREE_RETURN_IF_ERROR(loom_serve_decision_require_json(parser->body));
   iree_string_view_t cursor = parser->body, object;
   IREE_RETURN_IF_ERROR(iree_json_consume_insignificant(&cursor));
@@ -451,7 +455,7 @@ static iree_status_t loom_serve_decision_parse(decision_parser_t* parser) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing request JSON");
   }
-  decision_field_t fields[] = {
+  loom_serve_decision_field_t fields[] = {
       {.name = "model", .types = 1u << IREE_JSON_VALUE_TYPE_STRING},
       {.name = "state",
        .types = (1u << IREE_JSON_VALUE_TYPE_STRING) |
@@ -492,7 +496,7 @@ static iree_status_t loom_serve_decision_parse(decision_parser_t* parser) {
 
 static void loom_serve_decision_deinitialize(
     loom_serve_finite_request_t* base) {
-  decision_request_t* request = (decision_request_t*)base;
+  loom_serve_decision_request_t* request = (loom_serve_decision_request_t*)base;
   for (iree_host_size_t i = 0; i < base->count; ++i) {
     iree_allocator_free(request->host_allocator,
                         (void*)request->questions[i].id.data);
@@ -510,15 +514,17 @@ static void loom_serve_decision_deinitialize(
 static iree_status_t loom_serve_decision_initialize(
     iree_string_view_t body, iree_allocator_t host_allocator,
     loom_serve_finite_request_t* out_request) {
-  decision_request_t* request = (decision_request_t*)out_request;
+  loom_serve_decision_request_t* request =
+      (loom_serve_decision_request_t*)out_request;
   request->host_allocator = host_allocator;
-  decision_parser_t parser = {.body = body, .request = request};
+  loom_serve_decision_parser_t parser = {.body = body, .request = request};
   iree_string_builder_initialize(host_allocator, &parser.options);
   iree_string_builder_initialize(host_allocator, &parser.question_records);
   iree_string_builder_initialize(host_allocator, &parser.option_records);
   iree_status_t status = loom_serve_decision_parse(&parser);
   request->options =
-      (decision_option_t*)iree_string_builder_take_storage(&parser.options);
+      (loom_serve_decision_option_t*)iree_string_builder_take_storage(
+          &parser.options);
   iree_string_builder_deinitialize(&parser.options);
   iree_string_builder_deinitialize(&parser.question_records);
   iree_string_builder_deinitialize(&parser.option_records);
@@ -531,8 +537,9 @@ static double loom_serve_decision_probability(iree_const_byte_span_t row,
 }
 
 static iree_status_t loom_serve_decision_answer(
-    const decision_request_t* request, const decision_question_t* question,
-    iree_const_byte_span_t row, iree_string_builder_t* output) {
+    const loom_serve_decision_request_t* request,
+    const loom_serve_decision_question_t* question, iree_const_byte_span_t row,
+    iree_string_builder_t* output) {
   const iree_host_size_t count = question->option_count;
   if (row.data_length != count * 4) {
     return iree_make_status(IREE_STATUS_DATA_LOSS,
@@ -582,7 +589,7 @@ static iree_status_t loom_serve_decision_answer(
     double spread = 0, uniform_spread = 0;
     iree_status_t status = iree_ok_status();
     for (iree_host_size_t i = 0; i < count && iree_status_is_ok(status); ++i) {
-      const decision_option_t* option =
+      const loom_serve_decision_option_t* option =
           &request->options[question->first_option + i];
       spread += loom_serve_decision_probability(row, i) *
                 fabs((double)i - (double)mode);
@@ -627,7 +634,8 @@ static iree_status_t loom_serve_decision_response(
     const loom_serve_finite_request_t* base, iree_string_view_t model,
     const iree_const_byte_span_t* rows, uint64_t input_tokens,
     iree_string_builder_t* output) {
-  const decision_request_t* request = (const decision_request_t*)base;
+  const loom_serve_decision_request_t* request =
+      (const loom_serve_decision_request_t*)base;
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, "{\"model\":"));
   loom_output_stream_t stream;
@@ -668,7 +676,7 @@ const loom_serve_finite_protocol_t* loom_serve_decision_protocol(void) {
       .endpoint = "/v1/systemone",
       .output_modality = IREE_SVL("decision"),
       .invalid_status = "422 Unprocessable Entity",
-      .request_size = sizeof(decision_request_t),
+      .request_size = sizeof(loom_serve_decision_request_t),
       .initialize = loom_serve_decision_initialize,
       .deinitialize = loom_serve_decision_deinitialize,
       .response = loom_serve_decision_response};

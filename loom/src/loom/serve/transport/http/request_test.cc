@@ -21,15 +21,16 @@ constexpr char kPostBody[] =
     R"({"model":"bundle-model","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"echo","description":"echo","parameters":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}}],"stream":true,"stream_options":{"include_usage":true},"chat_template_kwargs":{"enable_thinking":true,"preserve_thinking":true}})";
 static_assert(sizeof(kPostBody) - 1 == 367);
 
-struct HttpRequestParserDeleter {
+struct loom_serve_test_http_request_parser_deleter_t {
   void operator()(loom_serve_http_request_parser_t* parser) const {
     loom_serve_http_request_parser_free(parser);
   }
 };
 using HttpRequestParserPtr =
-    std::unique_ptr<loom_serve_http_request_parser_t, HttpRequestParserDeleter>;
+    std::unique_ptr<loom_serve_http_request_parser_t,
+                    loom_serve_test_http_request_parser_deleter_t>;
 
-struct RequestSnapshot {
+struct loom_serve_test_http_request_snapshot_t {
   // Copied request method.
   std::string method;
   // Copied origin-form target.
@@ -100,7 +101,7 @@ std::string ChunkedRequest(const std::string& encoded_body) {
 }
 
 void CopyRequest(const loom_serve_http_request_t* request,
-                 RequestSnapshot* out_snapshot) {
+                 loom_serve_test_http_request_snapshot_t* out_snapshot) {
   out_snapshot->method = CopyString(request->method);
   out_snapshot->target = CopyString(request->target);
   for (iree_host_size_t i = 0; i < request->headers.count; ++i) {
@@ -116,9 +117,10 @@ void CopyRequest(const loom_serve_http_request_t* request,
   }
 }
 
-iree_status_t ParseRequest(const std::vector<iree_const_byte_span_t>& chunks,
-                           loom_serve_http_request_limits_t limits,
-                           RequestSnapshot* out_snapshot) {
+iree_status_t ParseRequest(
+    const std::vector<iree_const_byte_span_t>& chunks,
+    loom_serve_http_request_limits_t limits,
+    loom_serve_test_http_request_snapshot_t* out_snapshot) {
   loom_serve_http_request_parser_t* parser = nullptr;
   IREE_RETURN_IF_ERROR(loom_serve_http_request_parser_allocate(
       limits, iree_allocator_system(), &parser));
@@ -138,8 +140,9 @@ iree_const_byte_span_t StringSpan(const std::string& value) {
   return iree_make_const_byte_span(value.data(), value.size());
 }
 
-void ExpectSnapshotsEqual(const RequestSnapshot& actual,
-                          const RequestSnapshot& expected) {
+void ExpectSnapshotsEqual(
+    const loom_serve_test_http_request_snapshot_t& actual,
+    const loom_serve_test_http_request_snapshot_t& expected) {
   EXPECT_EQ(actual.method, expected.method);
   EXPECT_EQ(actual.target, expected.target);
   EXPECT_EQ(actual.headers, expected.headers);
@@ -148,18 +151,18 @@ void ExpectSnapshotsEqual(const RequestSnapshot& actual,
 }
 
 void ExpectEverySplit(const std::string& wire_request,
-                      const RequestSnapshot& expected) {
+                      const loom_serve_test_http_request_snapshot_t& expected) {
   std::vector<iree_const_byte_span_t> byte_chunks;
   for (size_t i = 0; i < wire_request.size(); ++i) {
     byte_chunks.push_back(
         iree_make_const_byte_span(wire_request.data() + i, 1));
   }
-  RequestSnapshot byte_fragmented;
+  loom_serve_test_http_request_snapshot_t byte_fragmented;
   IREE_ASSERT_OK(ParseRequest(byte_chunks, DefaultLimits(), &byte_fragmented));
   ExpectSnapshotsEqual(byte_fragmented, expected);
   for (size_t split = 1; split < wire_request.size(); ++split) {
     SCOPED_TRACE(split);
-    RequestSnapshot fragmented;
+    loom_serve_test_http_request_snapshot_t fragmented;
     IREE_ASSERT_OK(
         ParseRequest({iree_make_const_byte_span(wire_request.data(), split),
                       iree_make_const_byte_span(wire_request.data() + split,
@@ -171,7 +174,7 @@ void ExpectEverySplit(const std::string& wire_request,
 
 TEST(HttpRequestTest, ParsesCapturedOpenAiPostAcrossEverySplit) {
   const std::string wire_request = CapturedPostRequest();
-  RequestSnapshot expected;
+  loom_serve_test_http_request_snapshot_t expected;
   IREE_ASSERT_OK(
       ParseRequest({StringSpan(wire_request)}, DefaultLimits(), &expected));
   EXPECT_EQ(expected.method, "POST");
@@ -205,7 +208,7 @@ TEST(HttpRequestTest, ParsesChunkedMultipartAcrossEverySplit) {
       "filename=\"recording.wav\"\r\n\r\n\r\n"
       "5\r\n" +
       file_bytes + "\r\n2\r\n\r\n\r\nc\r\n--sample--\r\n\r\n0\r\n\r\n";
-  RequestSnapshot expected{
+  loom_serve_test_http_request_snapshot_t expected{
       .method = "POST",
       .target = "/v1/audio/transcriptions",
       .headers = {{"Host", "local"},
@@ -220,7 +223,7 @@ TEST(HttpRequestTest, ParsesChunkedMultipartAcrossEverySplit) {
           file_bytes + "\r\n--sample--\r\n",
       .form_fields = {{"model", "fixture"}, {"file", file_bytes}},
   };
-  RequestSnapshot actual;
+  loom_serve_test_http_request_snapshot_t actual;
   IREE_ASSERT_OK(
       ParseRequest({StringSpan(wire_request)}, DefaultLimits(), &actual));
   ExpectSnapshotsEqual(actual, expected);
@@ -234,13 +237,13 @@ TEST(HttpRequestTest, IgnoresChunkExtensionsAndDiscardsTrailers) {
       "1;empty=\"\"\r\nx\r\n"
       "000;last=yes\r\n"
       "X-Checksum: ignored\r\nHost: different\r\nContent-Length: 999\r\n\r\n");
-  const RequestSnapshot expected{
+  const loom_serve_test_http_request_snapshot_t expected{
       .method = "POST",
       .target = "/v1/audio/transcriptions",
       .headers = {{"Host", "local"}, {"Transfer-Encoding", "chunked"}},
       .body = "0123456789x",
   };
-  RequestSnapshot actual;
+  loom_serve_test_http_request_snapshot_t actual;
   IREE_ASSERT_OK(
       ParseRequest({StringSpan(wire_request)}, DefaultLimits(), &actual));
   ExpectSnapshotsEqual(actual, expected);
@@ -250,7 +253,7 @@ TEST(HttpRequestTest, IgnoresChunkExtensionsAndDiscardsTrailers) {
 TEST(HttpRequestTest, EmptyChunkedBodyHonorsZeroBodyCapacity) {
   auto limits = DefaultLimits();
   limits.body_byte_capacity = 0;
-  RequestSnapshot actual;
+  loom_serve_test_http_request_snapshot_t actual;
   const std::string wire_request = ChunkedRequest("0\r\n\r\n");
   IREE_ASSERT_OK(ParseRequest({StringSpan(wire_request)}, limits, &actual));
   EXPECT_TRUE(actual.body.empty());
@@ -263,7 +266,7 @@ TEST(HttpRequestTest, PreservesHeaderViewsAcrossDecodedBodyGrowth) {
   const std::string suffix = "\r\n0\r\n\r\n";
   auto limits = DefaultLimits();
   limits.body_byte_capacity = body.size();
-  RequestSnapshot actual;
+  loom_serve_test_http_request_snapshot_t actual;
   IREE_ASSERT_OK(
       ParseRequest({StringSpan(prefix), StringSpan(body), StringSpan(suffix)},
                    limits, &actual));
@@ -271,7 +274,7 @@ TEST(HttpRequestTest, PreservesHeaderViewsAcrossDecodedBodyGrowth) {
   EXPECT_EQ(actual.method, "POST");
   EXPECT_EQ(actual.headers[0],
             std::make_pair(std::string("Host"), std::string("local")));
-  RequestSnapshot coalesced;
+  loom_serve_test_http_request_snapshot_t coalesced;
   const std::string wire_request = prefix + body + suffix;
   IREE_ASSERT_OK(ParseRequest({StringSpan(wire_request)}, limits, &coalesced));
   ExpectSnapshotsEqual(coalesced, actual);
@@ -307,7 +310,7 @@ TEST(HttpRequestTest, TrimsHeaderWhitespace) {
       "X-Value:\t value with spaces \t\r\n"
       "Content-Encoding: identity\r\n"
       "\r\n";
-  RequestSnapshot snapshot;
+  loom_serve_test_http_request_snapshot_t snapshot;
   IREE_ASSERT_OK(
       ParseRequest({StringSpan(wire_request)}, DefaultLimits(), &snapshot));
   EXPECT_EQ(snapshot.target, "/resource?value=1");
@@ -350,7 +353,7 @@ TEST(HttpRequestTest, RejectsAmbiguousOrUnsupportedFraming) {
   };
   for (size_t i = 0; i < invalid_requests.size(); ++i) {
     SCOPED_TRACE(i);
-    RequestSnapshot ignored;
+    loom_serve_test_http_request_snapshot_t ignored;
     IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                           ParseRequest({StringSpan(invalid_requests[i])},
                                        DefaultLimits(), &ignored));
@@ -359,14 +362,14 @@ TEST(HttpRequestTest, RejectsAmbiguousOrUnsupportedFraming) {
   const std::string overflow_request =
       "POST / HTTP/1.1\r\nHost: local\r\nContent-Length: " +
       std::string(128, '9') + "\r\n\r\n";
-  RequestSnapshot ignored;
+  loom_serve_test_http_request_snapshot_t ignored;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       ParseRequest({StringSpan(overflow_request)}, DefaultLimits(), &ignored));
 }
 
 TEST(HttpRequestTest, ReportsTruncatedHeadersAndBodyAtEof) {
-  RequestSnapshot ignored;
+  loom_serve_test_http_request_snapshot_t ignored;
   const std::string partial_headers = "GET / HTTP/1.1\r\nHost: local\r\n";
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_DATA_LOSS,
@@ -409,7 +412,7 @@ TEST(HttpRequestTest, RejectsMalformedChunkFraming) {
   for (size_t i = 0; i < invalid_bodies.size(); ++i) {
     SCOPED_TRACE(i);
     const std::string wire_request = ChunkedRequest(invalid_bodies[i]);
-    RequestSnapshot ignored;
+    loom_serve_test_http_request_snapshot_t ignored;
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
         ParseRequest({StringSpan(wire_request)}, DefaultLimits(), &ignored));
@@ -442,12 +445,12 @@ TEST(HttpRequestTest, BoundsDecodedContentAndCumulativeFramingIndependently) {
   limits.body_byte_capacity = 4;
   const std::string exact_body =
       ChunkedRequest("2\r\nab\r\n2\r\ncd\r\n0\r\n\r\n");
-  RequestSnapshot actual;
+  loom_serve_test_http_request_snapshot_t actual;
   IREE_ASSERT_OK(ParseRequest({StringSpan(exact_body)}, limits, &actual));
   EXPECT_EQ(actual.body, "abcd");
   for (const char* encoded_body : {"5\r\n", "2\r\nab\r\n3\r\n"}) {
     const std::string wire_request = ChunkedRequest(encoded_body);
-    RequestSnapshot ignored;
+    loom_serve_test_http_request_snapshot_t ignored;
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_RESOURCE_EXHAUSTED,
         ParseRequest({StringSpan(wire_request)}, limits, &ignored));
@@ -457,7 +460,7 @@ TEST(HttpRequestTest, BoundsDecodedContentAndCumulativeFramingIndependently) {
   // "0;" + name + CRLF + empty trailer line has exactly 128 framing bytes.
   const std::string exact_framing =
       ChunkedRequest("0;" + std::string(122, 'a') + "\r\n\r\n");
-  RequestSnapshot empty;
+  loom_serve_test_http_request_snapshot_t empty;
   IREE_ASSERT_OK(ParseRequest({StringSpan(exact_framing)}, limits, &empty));
   EXPECT_TRUE(empty.body.empty());
   const std::vector<std::string> excessive_framing = {
@@ -469,7 +472,7 @@ TEST(HttpRequestTest, BoundsDecodedContentAndCumulativeFramingIndependently) {
   };
   for (const auto& encoded_body : excessive_framing) {
     const std::string wire_request = ChunkedRequest(encoded_body);
-    RequestSnapshot ignored;
+    loom_serve_test_http_request_snapshot_t ignored;
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_RESOURCE_EXHAUSTED,
         ParseRequest({StringSpan(wire_request)}, limits, &ignored));
@@ -484,7 +487,7 @@ TEST(HttpRequestTest, BoundsDecodedContentAndCumulativeFramingIndependently) {
 }
 
 TEST(HttpRequestTest, EnforcesHeaderBodyAndRecordCapacities) {
-  RequestSnapshot ignored;
+  loom_serve_test_http_request_snapshot_t ignored;
   loom_serve_http_request_limits_t limits = DefaultLimits();
   limits.header_byte_capacity = 16;
   const std::string request = CapturedGetRequest();

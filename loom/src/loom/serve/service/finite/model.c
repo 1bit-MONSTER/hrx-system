@@ -25,12 +25,12 @@
 #include "loom/serve/runtime/program/tokenizer_load.h"
 #include "loomc/iree.h"
 
-typedef struct finite_model_stage_t {
+typedef struct loom_serve_finite_model_stage_t {
   // Compiled source root, executable ownership and reflection.
   loom_serve_jit_stage_t* compiled;
   // Reusable command retaining the model's immutable parameter domains.
   iree_hal_command_buffer_t* command;
-} finite_model_stage_t;
+} loom_serve_finite_model_stage_t;
 
 struct loom_serve_finite_model_t {
   // Allocator owning this model and its invocation metadata.
@@ -73,7 +73,7 @@ struct loom_serve_finite_model_t {
     // Number of owned slots, including partially initialized slots on failure.
     uint32_t count;
     // Owned stage array in source declaration order.
-    finite_model_stage_t* values;
+    loom_serve_finite_model_stage_t* values;
     // Original runner descriptors used to restore the registration's code.
     loom_serve_stage_t* bindings;
     // Recording policy shared by original and replacement commands.
@@ -363,7 +363,7 @@ static iree_status_t loom_serve_finite_check_layouts(
       loom_serve_jit_stage_program(model->stages.values[0].compiled);
   const iree_host_size_t binding_count = 2;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    const finite_model_stage_t* stage = &model->stages.values[i];
+    const loom_serve_finite_model_stage_t* stage = &model->stages.values[i];
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(stage->compiled);
     const loom_serve_preparation_stage_t* declaration =
@@ -548,7 +548,7 @@ static iree_status_t loom_serve_finite_model_link(
       model->weights.count, model->weights.plans, host_allocator,
       &model->residency));
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    finite_model_stage_t* stage = &model->stages.values[i];
+    loom_serve_finite_model_stage_t* stage = &model->stages.values[i];
     if (loom_serve_jit_stage_program(stage->compiled)) {
       IREE_RETURN_IF_ERROR(loom_serve_jit_stage_record(
           stage->compiled, iree_hal_queue_family(dispatch), command_mode, NULL,
@@ -565,28 +565,28 @@ static iree_status_t loom_serve_finite_model_link(
 
 // A candidate owns only execution resources; all parameter plans and the VM
 // remain with the model. Runner binding retains selected resources separately.
-typedef struct finite_variant_t {
+typedef struct loom_serve_finite_variant_t {
   // Allocator owning this candidate and its recorded descriptors.
   iree_allocator_t host_allocator;
   // Compiled roots and diagnostics, including partially failed construction.
   loom_serve_stage_set_t* stages;
   // Owned command references; direct-dispatch references borrow stages.
   loom_serve_stage_t* bindings;
-} finite_variant_t;
+} loom_serve_finite_variant_t;
 
-typedef struct finite_variant_job_t {
+typedef struct loom_serve_finite_variant_job_t {
   // Borrowed immutable original model resources through completion.
   loom_serve_finite_model_t* model;
   // Owned candidate transferred on terminal publication, including failure.
-  finite_variant_t* variant;
+  loom_serve_finite_variant_t* variant;
   // Terminal producer completion after recording releases the model borrow.
   loom_serve_variant_completion_fn_t completion;
   // Borrowed producer notification state.
   void* user_data;
-} finite_variant_job_t;
+} loom_serve_finite_variant_job_t;
 
 static void loom_serve_finite_variant_free(void* value) {
-  finite_variant_t* variant = value;
+  loom_serve_finite_variant_t* variant = value;
   if (!variant) {
     return;
   }
@@ -600,9 +600,9 @@ static void loom_serve_finite_variant_free(void* value) {
 }
 
 static iree_status_t loom_serve_finite_variant_record(
-    finite_variant_job_t* job) {
+    loom_serve_finite_variant_job_t* job) {
   const loom_serve_finite_model_t* model = job->model;
-  finite_variant_t* variant = job->variant;
+  loom_serve_finite_variant_t* variant = job->variant;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
       variant->host_allocator, variant->stages->count,
       sizeof(*variant->bindings), (void**)&variant->bindings));
@@ -650,8 +650,8 @@ static iree_status_t loom_serve_finite_variant_record(
 static void loom_serve_finite_variant_compiled(void* user_data,
                                                iree_status_t status,
                                                loom_serve_stage_set_t* stages) {
-  finite_variant_job_t* job = user_data;
-  finite_variant_t* variant = job->variant;
+  loom_serve_finite_variant_job_t* job = user_data;
+  loom_serve_finite_variant_t* variant = job->variant;
   variant->stages = stages;
   if (iree_status_is_ok(status)) {
     status = loom_serve_finite_variant_record(job);
@@ -666,15 +666,16 @@ static iree_status_t loom_serve_finite_variant_compile(
     void* self, const loom_serve_sources_t* sources,
     loom_serve_variant_completion_fn_t completion, void* user_data) {
   loom_serve_finite_model_t* model = self;
-  finite_variant_t* variant = NULL;
+  loom_serve_finite_variant_t* variant = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       model->host_allocator, sizeof(*variant), (void**)&variant));
   variant->host_allocator = model->host_allocator;
-  finite_variant_job_t* job = NULL;
+  loom_serve_finite_variant_job_t* job = NULL;
   iree_status_t status =
       iree_allocator_malloc(model->host_allocator, sizeof(*job), (void**)&job);
   if (iree_status_is_ok(status)) {
-    *job = (finite_variant_job_t){model, variant, completion, user_data};
+    *job = (loom_serve_finite_variant_job_t){model, variant, completion,
+                                             user_data};
     status = loom_serve_stage_set_compile_async(
         model->owner, model->preparation, sources,
         loom_serve_finite_variant_compiled, job, model->host_allocator);
@@ -688,7 +689,7 @@ static iree_status_t loom_serve_finite_variant_compile(
 
 static iree_status_t loom_serve_finite_variant_select(void* self, void* value) {
   loom_serve_finite_model_t* model = self;
-  const finite_variant_t* variant = value;
+  const loom_serve_finite_variant_t* variant = value;
   return loom_serve_module_bind_stages(
       model->control.runner, model->stages.count,
       variant ? variant->bindings : model->stages.bindings);
@@ -703,14 +704,14 @@ loom_serve_execution_update_t loom_serve_finite_model_execution_update(
       .dispose = loom_serve_finite_variant_free};
 }
 
-typedef enum finite_load_phase_e {
+typedef enum loom_serve_finite_load_phase_e {
   FINITE_LOAD_PREPARE,
   FINITE_LOAD_STAGES,
   FINITE_LOAD_BIND,
   FINITE_LOAD_WEIGHTS,
   FINITE_LOAD_LINK,
   FINITE_LOAD_COMPLETE,
-} finite_load_phase_t;
+} loom_serve_finite_load_phase_t;
 
 struct loom_serve_finite_load_t {
   // One private bootstrap task, retired before any native compilation starts.
@@ -722,7 +723,7 @@ struct loom_serve_finite_load_t {
   // Borrowed immutable package inputs, retained by the registration owner.
   loom_serve_finite_model_options_t options;
   // Owner-only next phase; callbacks never make shared-state transitions.
-  finite_load_phase_t phase;
+  loom_serve_finite_load_phase_t phase;
   // Next parameter domain during checkpoint preparation.
   uint32_t index;
   // Recording policy shared by consumer and weight preparation commands.

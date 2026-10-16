@@ -131,7 +131,7 @@ TEST(ImageTest, RegistryMatchesBuildConfiguration) {
 }
 
 TEST(ImageTest, PreservesStraightAlphaForDevicePreprocessing) {
-  struct Case {
+  struct loom_serve_test_image_case_t {
     // Data URL MIME type.
     const char* mime;
     // Base64-compressed input.
@@ -139,7 +139,7 @@ TEST(ImageTest, PreservesStraightAlphaForDevicePreprocessing) {
     // Required build-selected provider.
     loom_serve_media_image_format_t format;
   };
-  const Case cases[] = {
+  const loom_serve_test_image_case_t cases[] = {
       {"image/png",
        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGPkEpFjkJOTa2C"
        "xsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=",
@@ -248,7 +248,7 @@ TEST(ImageTest, CodecBatchKeepsIndependentResultsAndDestinations) {
 }
 
 TEST(ImageTest, InspectsAndDecodesLosslessFormats) {
-  struct Case {
+  struct loom_serve_test_image_case_t {
     // Data URL MIME type.
     const char* media_type;
     // Base64-compressed input.
@@ -256,13 +256,13 @@ TEST(ImageTest, InspectsAndDecodesLosslessFormats) {
     // Required build-selected provider.
     loom_serve_media_image_format_t format;
   };
-  const Case cases[] = {
+  const loom_serve_test_image_case_t cases[] = {
       {"image/png", kPng, LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG},
       {"image/gif", kGif, LOOM_SERVE_MEDIA_IMAGE_FORMAT_GIF},
       {"image/webp", kWebP, LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP}};
   const std::vector<uint8_t> expected = {255, 0, 0,   0,   255, 0,
                                          0,   0, 255, 255, 255, 255};
-  for (const Case& test_case : cases) {
+  for (const loom_serve_test_image_case_t& test_case : cases) {
     SCOPED_TRACE(test_case.media_type);
     const std::string url = DataUrl(test_case.media_type, test_case.encoded);
     if (!Available(test_case.format, url)) {

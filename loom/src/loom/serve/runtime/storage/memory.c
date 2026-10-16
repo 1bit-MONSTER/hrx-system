@@ -46,7 +46,7 @@ struct loom_serve_memory_pool_t {
   bool legacy_amdgpu_mappings_pending;
 };
 
-typedef struct memory_slab_t {
+typedef struct loom_serve_memory_slab_t {
   // Owned physical handle, or null for uncommitted storage.
   iree_hal_physical_memory_t* physical;
   // Whether physical is currently mapped into its virtual slot.
@@ -57,7 +57,7 @@ typedef struct memory_slab_t {
   bool pending_commit;
   // Accepted asynchronous operation excludes another editor of this slot.
   bool in_flight;
-} memory_slab_t;
+} loom_serve_memory_slab_t;
 
 struct loom_serve_virtual_buffer_t {
   // Borrowed physical owner outliving this reservation.
@@ -69,17 +69,17 @@ struct loom_serve_virtual_buffer_t {
   // Number of equally sized slots spanning the reservation.
   iree_host_size_t slab_count;
   // Physical ownership and maintenance marks for each virtual slot.
-  memory_slab_t slabs[];
+  loom_serve_memory_slab_t slabs[];
 };
 
-typedef struct memory_edit_t {
+typedef struct loom_serve_memory_edit_t {
   // Borrowed reservation held alive by the operation's caller.
   loom_serve_virtual_buffer_t* buffer;
   // Slab index within buffer.
   iree_host_size_t index;
   // Native result written exclusively by the cold owner until completion.
-  memory_slab_t result;
-} memory_edit_t;
+  loom_serve_memory_slab_t result;
+} loom_serve_memory_edit_t;
 
 struct loom_serve_memory_operation_t {
   // Intrusive work item owned by the native executor until callback entry.
@@ -118,7 +118,7 @@ struct loom_serve_memory_operation_t {
   // Number of distinct selected slabs in the trailing edit array.
   iree_host_size_t count;
   // Exact native work; no worker traverses mutable serving metadata.
-  memory_edit_t edits[];
+  loom_serve_memory_edit_t edits[];
 };
 
 static void loom_serve_memory_pool_collect(loom_serve_memory_pool_t* pool);
@@ -275,13 +275,14 @@ iree_status_t loom_serve_virtual_buffer_allocate(
   }
   const uint64_t count = (length + pool->slab_size - 1) / pool->slab_size;
   if (count > (IREE_HOST_SIZE_MAX - sizeof(loom_serve_virtual_buffer_t)) /
-                  sizeof(memory_slab_t)) {
+                  sizeof(loom_serve_memory_slab_t)) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "virtual buffer metadata is too large");
   }
   loom_serve_virtual_buffer_t* buffer = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      pool->host_allocator, sizeof(*buffer) + count * sizeof(memory_slab_t),
+      pool->host_allocator,
+      sizeof(*buffer) + count * sizeof(loom_serve_memory_slab_t),
       (void**)&buffer));
   buffer->pool = pool;
   buffer->statistics = statistics;
@@ -306,7 +307,7 @@ iree_hal_buffer_t* loom_serve_virtual_buffer_handle(
 
 static iree_status_t loom_serve_memory_slab_release_native(
     loom_serve_virtual_buffer_t* buffer, iree_host_size_t index,
-    memory_slab_t* slab) {
+    loom_serve_memory_slab_t* slab) {
   loom_serve_memory_pool_t* pool = buffer->pool;
   if (slab->mapped) {
     IREE_RETURN_IF_ERROR(iree_hal_allocator_virtual_memory_unmap(
@@ -324,11 +325,11 @@ static iree_status_t loom_serve_memory_slab_release_native(
 
 // Publishes one native result on the serialized pool owner. Native work never
 // mutates this accounting or another operation's slab metadata.
-static void loom_serve_memory_slab_publish(loom_serve_virtual_buffer_t* buffer,
-                                           iree_host_size_t index,
-                                           const memory_slab_t* result) {
+static void loom_serve_memory_slab_publish(
+    loom_serve_virtual_buffer_t* buffer, iree_host_size_t index,
+    const loom_serve_memory_slab_t* result) {
   loom_serve_memory_pool_t* pool = buffer->pool;
-  memory_slab_t* slab = &buffer->slabs[index];
+  loom_serve_memory_slab_t* slab = &buffer->slabs[index];
   if (slab->physical && !result->physical) {
     pool->statistics.committed_bytes -= pool->slab_size;
     pool->statistics.released_bytes += pool->slab_size;
@@ -349,7 +350,7 @@ static void loom_serve_memory_slab_publish(loom_serve_virtual_buffer_t* buffer,
 
 static iree_status_t loom_serve_memory_slab_commit_native(
     loom_serve_virtual_buffer_t* buffer, iree_host_size_t index,
-    memory_slab_t* slab) {
+    loom_serve_memory_slab_t* slab) {
   loom_serve_memory_pool_t* pool = buffer->pool;
   iree_status_t status = iree_hal_allocator_physical_memory_allocate(
       pool->device_allocator, loom_serve_memory_params(), pool->slab_size,
@@ -410,7 +411,7 @@ static void loom_serve_memory_pool_collect(loom_serve_memory_pool_t* pool) {
       continue;
     }
     for (iree_host_size_t i = 0; i < operation->count; ++i) {
-      const memory_edit_t* edit = &operation->edits[i];
+      const loom_serve_memory_edit_t* edit = &operation->edits[i];
       loom_serve_memory_slab_publish(edit->buffer, edit->index, &edit->result);
       if (operation->releasing) {
         edit->buffer->statistics->releasing_bytes -= pool->slab_size;
@@ -440,7 +441,7 @@ static void loom_serve_memory_operation_execute(
   bool mapped = false;
   for (iree_host_size_t i = 0;
        i < operation->count && iree_status_is_ok(status); ++i) {
-    memory_edit_t* edit = &operation->edits[i];
+    loom_serve_memory_edit_t* edit = &operation->edits[i];
     if (operation->releasing) {
       status = loom_serve_memory_slab_release_native(edit->buffer, edit->index,
                                                      &edit->result);
@@ -515,7 +516,7 @@ iree_status_t loom_serve_memory_pool_commit_async(
     const iree_host_size_t end =
         (range->offset + range->length - 1) / pool->slab_size + 1;
     for (iree_host_size_t i = range->offset / pool->slab_size; i < end; ++i) {
-      memory_slab_t* slab = &range->buffer->slabs[i];
+      loom_serve_memory_slab_t* slab = &range->buffer->slabs[i];
       IREE_ASSERT(!slab->in_flight);
       if (!slab->physical && !slab->pending_commit) {
         slab->pending_commit = true;
@@ -529,8 +530,8 @@ iree_status_t loom_serve_memory_pool_commit_async(
   loom_serve_memory_operation_t* operation = NULL;
   if (iree_status_is_ok(status) && admitted && count) {
     status = iree_allocator_malloc_struct_array(
-        pool->host_allocator, sizeof(*operation), count, sizeof(memory_edit_t),
-        (void**)&operation);
+        pool->host_allocator, sizeof(*operation), count,
+        sizeof(loom_serve_memory_edit_t), (void**)&operation);
   }
   iree_host_size_t index = 0;
   for (iree_host_size_t r = 0; r < range_count; ++r) {
@@ -538,11 +539,11 @@ iree_status_t loom_serve_memory_pool_commit_async(
     const iree_host_size_t end =
         (range->offset + range->length - 1) / pool->slab_size + 1;
     for (iree_host_size_t i = range->offset / pool->slab_size; i < end; ++i) {
-      memory_slab_t* slab = &range->buffer->slabs[i];
+      loom_serve_memory_slab_t* slab = &range->buffer->slabs[i];
       if (slab->pending_commit) {
         slab->pending_commit = false;
         if (operation) {
-          operation->edits[index++] = (memory_edit_t){
+          operation->edits[index++] = (loom_serve_memory_edit_t){
               .buffer = range->buffer,
               .index = i,
           };
@@ -584,7 +585,7 @@ iree_status_t loom_serve_memory_pool_trim_async(
   iree_host_size_t count = 0;
   for (iree_host_size_t b = 0; b < buffer_count; ++b) {
     for (iree_host_size_t i = 0; i < buffers[b]->slab_count; ++i) {
-      const memory_slab_t* slab = &buffers[b]->slabs[i];
+      const loom_serve_memory_slab_t* slab = &buffers[b]->slabs[i];
       if (!slab->keep && slab->physical) {
         IREE_ASSERT(!slab->in_flight);
         ++count;
@@ -602,7 +603,7 @@ iree_status_t loom_serve_memory_pool_trim_async(
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_allocator_malloc_struct_array(
               pool->host_allocator, sizeof(*operation), count,
-              sizeof(memory_edit_t), (void**)&operation));
+              sizeof(loom_serve_memory_edit_t), (void**)&operation));
   operation->count = count;
   operation->releasing = true;
   operation->readiness = readiness;
@@ -612,9 +613,10 @@ iree_status_t loom_serve_memory_pool_trim_async(
   for (iree_host_size_t b = 0; b < buffer_count; ++b) {
     loom_serve_virtual_buffer_t* buffer = buffers[b];
     for (iree_host_size_t i = 0; i < buffer->slab_count; ++i) {
-      memory_slab_t* slab = &buffer->slabs[i];
+      loom_serve_memory_slab_t* slab = &buffer->slabs[i];
       if (!slab->keep && slab->physical) {
-        operation->edits[index++] = (memory_edit_t){buffer, i, *slab};
+        operation->edits[index++] =
+            (loom_serve_memory_edit_t){buffer, i, *slab};
         slab->in_flight = true;
         buffer->statistics->releasing_bytes += pool->slab_size;
       }
@@ -688,7 +690,7 @@ iree_status_t loom_serve_memory_pool_try_commit(
     const iree_host_size_t end =
         (range->offset + range->length - 1) / pool->slab_size + 1;
     for (iree_host_size_t i = range->offset / pool->slab_size; i < end; ++i) {
-      memory_slab_t* slab = &range->buffer->slabs[i];
+      loom_serve_memory_slab_t* slab = &range->buffer->slabs[i];
       IREE_ASSERT(!slab->in_flight);
       if (!slab->physical && !slab->pending_commit) {
         slab->pending_commit = true;
@@ -707,11 +709,11 @@ iree_status_t loom_serve_memory_pool_try_commit(
     const iree_host_size_t end =
         (range->offset + range->length - 1) / pool->slab_size + 1;
     for (iree_host_size_t i = range->offset / pool->slab_size; i < end; ++i) {
-      memory_slab_t* slab = &range->buffer->slabs[i];
+      loom_serve_memory_slab_t* slab = &range->buffer->slabs[i];
       if (slab->pending_commit) {
         slab->pending_commit = false;
         if (iree_status_is_ok(status) && admitted) {
-          memory_slab_t result = {0};
+          loom_serve_memory_slab_t result = {0};
           status =
               loom_serve_memory_slab_commit_native(range->buffer, i, &result);
           loom_serve_memory_slab_publish(range->buffer, i, &result);
@@ -774,7 +776,7 @@ iree_status_t loom_serve_virtual_buffer_trim(
        i < buffer->slab_count && iree_status_is_ok(status); ++i) {
     if (!buffer->slabs[i].keep) {
       IREE_ASSERT(!buffer->slabs[i].in_flight);
-      memory_slab_t result = buffer->slabs[i];
+      loom_serve_memory_slab_t result = buffer->slabs[i];
       status = loom_serve_memory_slab_release_native(buffer, i, &result);
       loom_serve_memory_slab_publish(buffer, i, &result);
     }

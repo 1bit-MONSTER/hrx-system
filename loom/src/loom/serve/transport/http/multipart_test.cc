@@ -15,13 +15,13 @@
 
 namespace {
 
-struct MultipartDeleter {
+struct loom_serve_test_http_multipart_deleter_t {
   void operator()(loom_serve_http_multipart_t* multipart) const {
     loom_serve_http_multipart_free(multipart);
   }
 };
-using MultipartPtr =
-    std::unique_ptr<loom_serve_http_multipart_t, MultipartDeleter>;
+using MultipartPtr = std::unique_ptr<loom_serve_http_multipart_t,
+                                     loom_serve_test_http_multipart_deleter_t>;
 
 std::string Copy(iree_string_view_t value) {
   return std::string(value.data ? value.data : "", value.size);

@@ -51,16 +51,16 @@ enum {
   TEXT_HOST_BUFFER_COUNT = 10,
 };
 
-enum text_epoch_flag_bits_e {
+enum loom_serve_text_epoch_flag_bits_e {
   TEXT_EPOCH_FLAG_VERIFY = 1u << 0,
   TEXT_EPOCH_FLAG_CONTINUATION = 1u << 1,
 };
-typedef uint32_t text_epoch_flags_t;
+typedef uint32_t loom_serve_text_epoch_flags_t;
 
-typedef enum text_step_kind_e {
+typedef enum loom_serve_text_step_kind_e {
   TEXT_STEP_PREFILL,
   TEXT_STEP_DECODE,
-} text_step_kind_t;
+} loom_serve_text_step_kind_t;
 
 struct loom_serve_text_model_t {
   // Host allocation policy used for all owned resources.
@@ -144,7 +144,7 @@ struct loom_serve_text_model_t {
     // Resident row identity in first-plan caller order.
     iree_host_size_t row_indices[TEXT_ROW_CAPACITY];
     // Source publication mode selected by the submitted plan.
-    text_epoch_flags_t flags;
+    loom_serve_text_epoch_flags_t flags;
     // First-plan span bits with device-fed speculative continuation.
     uint32_t continued_speculative_mask;
     // Exact mixed-input host plan and packet records; empty for text-only.
@@ -164,7 +164,7 @@ struct loom_serve_text_row_t {
   // Single-row publication facts, owned until successful complete_step.
   struct {
     // Source command and completed metric category.
-    text_step_kind_t kind;
+    loom_serve_text_step_kind_t kind;
     // Absolute source-owned position to publish after successful readiness.
     uint32_t source_position;
     // Number of consumed inputs published only after readiness.
@@ -375,7 +375,7 @@ static iree_status_t loom_serve_text_create_program(
                                  bindings);
 }
 
-typedef enum text_load_phase_e {
+typedef enum loom_serve_text_load_phase_e {
   TEXT_LOAD_PREPARE,
   TEXT_LOAD_STAGES,
   TEXT_LOAD_BIND,
@@ -383,7 +383,7 @@ typedef enum text_load_phase_e {
   TEXT_LOAD_LINK,
   TEXT_LOAD_READY,
   TEXT_LOAD_COMPLETE,
-} text_load_phase_t;
+} loom_serve_text_load_phase_t;
 
 struct loom_serve_text_load_t {
   // Private bootstrap task; final release publishes completion to the owner.
@@ -395,7 +395,7 @@ struct loom_serve_text_load_t {
   // Borrowed source paths and shapes, retained through terminal advance.
   loom_serve_text_options_t options;
   // Serialized owner-only phase; callbacks publish results, never transition.
-  text_load_phase_t phase;
+  loom_serve_text_load_phase_t phase;
   // Next parameter domain during checkpoint preparation.
   iree_host_size_t index;
   // Once cancelled, subsequent advance calls cannot restart preparation.

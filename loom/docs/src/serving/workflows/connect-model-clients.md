@@ -3,8 +3,8 @@
 `loom-serve` can back Pi, Oh My Pi and Open WebUI through their existing
 OpenAI-compatible configuration. No client plugin or Loom-specific HTTP route
 is required. The server continues to publish one complete catalog containing
-text, image, embedding, decision and speech deployments; each client selects the
-operations it understands.
+text, image, embedding, decision, speech and recognition deployments; each
+client selects the operations it understands.
 
 This workflow assumes that the server and its model packages are already
 running. [Serve source-defined models](serve-models.md) establishes that
@@ -266,6 +266,24 @@ additionally needs session events, microphone input, transcription, turn
 detection and interruption. Configuring a speech model on the ordinary OpenAI
 chat connection does not supply those capabilities.
 
+## PCM transcription clients
+
+A client can send a completed recording to a recognition deployment through
+`POST /v1/audio/transcriptions` and read the JSON `text` result or request plain
+text. The [transcription profile](../http-profiles.md#audio-transcription) gives
+a copyable curl request and accepted fields.
+
+The upload must contain signed PCM16LE with explicit `rate` and `channels`
+parameters in the file part's `Content-Type`. Its geometry must match the model.
+Clients that send WAV, MP3, FLAC, or browser audio containers need an audio-format
+adapter before they can use this PCM profile. Changing the filename or MIME
+label does not convert those bytes into raw samples.
+
+Chunked multipart transfer is accepted, but recognition begins after the upload
+completes. The endpoint returns finalized text; appendable microphone sessions,
+provisional transcripts, turn detection, and interruption require a realtime
+session protocol in addition to this upload endpoint.
+
 ## Diagnose the boundary
 
 Test from the same network namespace as the client. A successful request from
@@ -278,8 +296,9 @@ curl --fail --silent --show-error "$loom_base_url/models"
 
 Then test the operation directly with the exact model ID. The
 [HTTP profile reference](../http-profiles.md) gives accepted request
-fields for chat, image and embedding operations. Loom deliberately rejects
-unknown or unsupported options instead of silently changing their meaning.
+fields for chat, image, embedding, speech and transcription operations. Loom
+deliberately rejects unknown or unsupported options instead of silently changing
+their meaning.
 Common configuration failures are a nonzero sampling parameter, an image size
 that differs from the deployment, an operation using a model of another kind,
 or a client base URL that duplicates or omits `/v1`.

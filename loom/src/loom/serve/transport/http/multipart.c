@@ -21,23 +21,23 @@ struct loom_serve_http_multipart_t {
   iree_host_size_t metadata_length;
 };
 
-typedef struct multipart_parameter_t {
+typedef struct loom_serve_http_multipart_parameter_t {
   // Case-preserving parameter name borrowed from the field value.
   iree_string_view_t name;
   // Raw value excluding surrounding quotes, with quoted pairs still escaped.
   iree_string_view_t value;
   // Whether quoted-pair decoding applies to value.
   bool quoted;
-} multipart_parameter_t;
+} loom_serve_http_multipart_parameter_t;
 
-typedef struct multipart_delimiter_t {
+typedef struct loom_serve_http_multipart_delimiter_t {
   // Start of the delimiter including its preceding CRLF when present.
   iree_host_size_t begin;
   // First byte after the delimiter line, or body end for an unpadded close.
   iree_host_size_t end;
   // Terminal delimiter; subsequent epilogue bytes are not part content.
   bool closing;
-} multipart_delimiter_t;
+} loom_serve_http_multipart_delimiter_t;
 
 static bool multipart_is_space(char value) {
   return value == ' ' || value == '\t';
@@ -73,7 +73,8 @@ static iree_string_view_t multipart_take_token(iree_string_view_t* cursor) {
 
 // A nonempty cursor contains exactly one next parameter or malformed input.
 static iree_status_t multipart_take_parameter(
-    iree_string_view_t* cursor, multipart_parameter_t* out_parameter) {
+    iree_string_view_t* cursor,
+    loom_serve_http_multipart_parameter_t* out_parameter) {
   *cursor = multipart_trim(*cursor);
   if (!cursor->size || cursor->data[0] != ';') {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -126,14 +127,14 @@ static iree_status_t multipart_take_parameter(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "multipart parameter has trailing bytes");
   }
-  *out_parameter =
-      (multipart_parameter_t){.name = name, .value = value, .quoted = quoted};
+  *out_parameter = (loom_serve_http_multipart_parameter_t){
+      .name = name, .value = value, .quoted = quoted};
   return iree_ok_status();
 }
 
 // The parameter parser has already validated every quoted pair.
-static iree_host_size_t multipart_unquote(multipart_parameter_t parameter,
-                                          char* target) {
+static iree_host_size_t multipart_unquote(
+    loom_serve_http_multipart_parameter_t parameter, char* target) {
   iree_host_size_t length = 0;
   for (iree_host_size_t i = 0; i < parameter.value.size; ++i) {
     if (parameter.quoted && parameter.value.data[i] == '\\') {
@@ -150,7 +151,7 @@ static iree_status_t multipart_boundary(iree_string_view_t parameters,
   iree_host_size_t length = 0;
   bool found = false;
   while (parameters.size) {
-    multipart_parameter_t parameter;
+    loom_serve_http_multipart_parameter_t parameter;
     IREE_RETURN_IF_ERROR(multipart_take_parameter(&parameters, &parameter));
     if (!iree_string_view_equal_case(parameter.name, IREE_SV("boundary"))) {
       continue;
@@ -188,7 +189,8 @@ static iree_status_t multipart_boundary(iree_string_view_t parameters,
 
 static iree_status_t multipart_find_delimiter(
     iree_string_view_t body, iree_string_view_t boundary,
-    iree_host_size_t start, multipart_delimiter_t* out_delimiter) {
+    iree_host_size_t start,
+    loom_serve_http_multipart_delimiter_t* out_delimiter) {
   char marker[74] = {'\r', '\n', '-', '-'};
   memcpy(marker + 4, boundary.data, boundary.size);
   const iree_string_view_t marker_view =
@@ -227,13 +229,13 @@ static iree_status_t multipart_find_delimiter(
       ++after;
     }
     if (closing && after == body.size) {
-      *out_delimiter = (multipart_delimiter_t){
+      *out_delimiter = (loom_serve_http_multipart_delimiter_t){
           .begin = begin, .end = after, .closing = true};
       return iree_ok_status();
     }
     if (body.size - after >= 2 && body.data[after] == '\r' &&
         body.data[after + 1] == '\n') {
-      *out_delimiter = (multipart_delimiter_t){
+      *out_delimiter = (loom_serve_http_multipart_delimiter_t){
           .begin = begin, .end = after + 2, .closing = closing};
       return iree_ok_status();
     }
@@ -247,7 +249,8 @@ static iree_status_t multipart_find_delimiter(
 // Stored metadata is a subset of the charged wire headers and cannot exceed
 // their cumulative byte bound. Each selected field is stored exactly once.
 static iree_string_view_t multipart_store(
-    loom_serve_http_multipart_t* multipart, multipart_parameter_t parameter) {
+    loom_serve_http_multipart_t* multipart,
+    loom_serve_http_multipart_parameter_t parameter) {
   char* target = multipart->metadata + multipart->metadata_length;
   const iree_host_size_t length = multipart_unquote(parameter, target);
   multipart->metadata_length += length;
@@ -264,7 +267,7 @@ static iree_status_t multipart_disposition(
   }
   value = multipart_trim(value);
   while (value.size) {
-    multipart_parameter_t parameter;
+    loom_serve_http_multipart_parameter_t parameter;
     IREE_RETURN_IF_ERROR(multipart_take_parameter(&value, &parameter));
     iree_string_view_t* target = NULL;
     if (iree_string_view_equal_case(parameter.name, IREE_SV("name"))) {
@@ -309,7 +312,7 @@ static iree_status_t multipart_validate_content_type(iree_string_view_t value) {
   }
   value = multipart_trim(value);
   while (value.size) {
-    multipart_parameter_t parameter;
+    loom_serve_http_multipart_parameter_t parameter;
     IREE_RETURN_IF_ERROR(multipart_take_parameter(&value, &parameter));
   }
   return iree_ok_status();
@@ -381,7 +384,7 @@ static iree_status_t multipart_parse_parts(
     loom_serve_http_multipart_t* multipart, iree_string_view_t body,
     iree_string_view_t boundary, iree_host_size_t header_byte_capacity,
     iree_host_size_t part_capacity, iree_string_builder_t* scratch) {
-  multipart_delimiter_t delimiter;
+  loom_serve_http_multipart_delimiter_t delimiter;
   IREE_RETURN_IF_ERROR(multipart_find_delimiter(body, boundary, 0, &delimiter));
   iree_host_size_t remaining_header_bytes = header_byte_capacity;
   while (!delimiter.closing) {
@@ -415,8 +418,8 @@ static iree_status_t multipart_parse_parts(
               "multipart content type is empty or repeated");
         }
         IREE_RETURN_IF_ERROR(multipart_validate_content_type(value));
-        part.content_type =
-            multipart_store(multipart, (multipart_parameter_t){.value = value});
+        part.content_type = multipart_store(
+            multipart, (loom_serve_http_multipart_parameter_t){.value = value});
       } else if (iree_string_view_equal_case(
                      name, IREE_SV("Content-Transfer-Encoding"))) {
         if (transfer_encoding ||

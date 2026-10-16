@@ -20,7 +20,7 @@
 #include "loom/serve/service/image/telemetry.h"
 #include "loom/util/json.h"
 
-typedef struct image_job_t {
+typedef struct loom_serve_image_job_t {
   // Monotonic process-local request identity; zero denotes no active job.
   uint64_t id;
   // Immutable monotonic receipt time, preserved through queue and invocation.
@@ -33,23 +33,23 @@ typedef struct image_job_t {
   loom_serve_image_prepared_t prepared;
   // Successfully completed model command parts, excluding cancellation cleanup.
   uint64_t completed_parts;
-} image_job_t;
+} loom_serve_image_job_t;
 
-typedef struct image_pending_t {
+typedef struct loom_serve_image_pending_t {
   // Borrowed claimed connection, released by response or cancellation.
   loom_serve_http_connection_t* connection;
   // Owned pending request, moved to the invocation on admission.
-  image_job_t job;
-} image_pending_t;
+  loom_serve_image_job_t job;
+} loom_serve_image_pending_t;
 
-typedef enum image_phase_e {
+typedef enum loom_serve_image_phase_e {
   IMAGE_PHASE_IDLE = 0,
   IMAGE_PHASE_PREPARING,
   IMAGE_PHASE_WAITING,
   IMAGE_PHASE_READY,
   IMAGE_PHASE_GENERATING,
   IMAGE_PHASE_ENCODING,
-} image_phase_t;
+} loom_serve_image_phase_t;
 
 static const char* const image_phases[] = {"idle",  "preparing",  "waiting",
                                            "ready", "generating", "encoding"};
@@ -70,13 +70,13 @@ struct loom_serve_image_service_t {
   // Borrowed host proactor for model multi-waits and heartbeat timers.
   iree_async_proactor_t* proactor;
   // Current invocation phase, mutated only by scheduler turns.
-  image_phase_t phase;
+  loom_serve_image_phase_t phase;
   // Stops admission while accepted tasks and model work finish naturally.
   bool stopping;
   // Owned failure accumulated on a turn, transferred to the router on return.
   iree_status_t status;
   // Input retained while preparation, device work or encoding is outstanding.
-  image_job_t job;
+  loom_serve_image_job_t job;
   // Completion publication shared by CPU workers, proactor and scheduler.
   struct {
     // Joins publication callbacks' final access before owner destruction.
@@ -96,7 +96,7 @@ struct loom_serve_image_service_t {
     // Source preparation or image encoding, never device waiting.
     iree_task_process_t process;
     // Immutable operation selector while the CPU process is live.
-    image_phase_t phase;
+    loom_serve_image_phase_t phase;
     // Borrowed successful model output, retained through encoding.
     iree_const_byte_span_t rgb;
     // Owned complete HTTP result, independent of health/metadata responses.
@@ -118,7 +118,7 @@ struct loom_serve_image_service_t {
   // Periodic readiness and owned cancellation, independent of device waits.
   loom_serve_timer_t timer;
   // Bounded FIFO of owned host requests, excluding the active image.
-  image_pending_t* pending;
+  loom_serve_image_pending_t* pending;
   // Number of occupied FIFO entries.
   iree_host_size_t pending_count;
   // Active request's peer; NULL after a reset while the image still runs.
@@ -177,7 +177,7 @@ static void loom_serve_image_diagnose(loom_serve_image_service_t* service,
 }
 
 static void loom_serve_image_request_end(loom_serve_image_service_t* service,
-                                         const image_job_t* job,
+                                         const loom_serve_image_job_t* job,
                                          loom_serve_telemetry_outcome_t outcome,
                                          const iree_status_t borrowed_status) {
   loom_serve_telemetry_count_outcome(&service->telemetry.counters, outcome);
@@ -275,7 +275,7 @@ static iree_status_t loom_serve_image_rejection_response(
 // Rejections before admission own only a local receipt, not the active job.
 static iree_status_t loom_serve_image_reject(
     loom_serve_image_service_t* service,
-    loom_serve_http_connection_t* connection, const image_job_t* job,
+    loom_serve_http_connection_t* connection, const loom_serve_image_job_t* job,
     const char* code, iree_string_view_t message) {
   const iree_status_t status = loom_serve_image_rejection_response(
       service, connection, job->id, code, message);
@@ -364,7 +364,7 @@ static void loom_serve_image_cpu_released(iree_task_process_t* process) {
 }
 
 static void loom_serve_image_schedule_cpu(loom_serve_image_service_t* service,
-                                          image_phase_t phase) {
+                                          loom_serve_image_phase_t phase) {
   service->phase = phase;
   service->cpu.phase = phase;
   iree_task_process_initialize(loom_serve_image_cpu_run, 0, 1,
@@ -376,7 +376,7 @@ static void loom_serve_image_schedule_cpu(loom_serve_image_service_t* service,
 }
 
 static void loom_serve_image_start(loom_serve_image_service_t* service,
-                                   image_pending_t pending) {
+                                   loom_serve_image_pending_t pending) {
   service->active = pending.job.id;
   service->connection = pending.connection;
   service->job = pending.job;
@@ -627,7 +627,7 @@ static void loom_serve_image_prune(loom_serve_image_service_t* service,
   }
   iree_host_size_t retained = 0;
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
-    image_pending_t pending = service->pending[i];
+    loom_serve_image_pending_t pending = service->pending[i];
     if (loom_serve_http_connection_failed(pending.connection)) {
       loom_serve_image_request_end(service, &pending.job,
                                    LOOM_SERVE_TELEMETRY_CANCELLED,
@@ -647,7 +647,7 @@ static iree_status_t loom_serve_image_accept(
     const loom_serve_http_request_t* request,
     loom_serve_http_service_flags_t flags) {
   loom_serve_image_service_t* service = self;
-  image_pending_t pending = {
+  loom_serve_image_pending_t pending = {
       .connection = connection,
       .job = {.id = ++service->telemetry.counters.requests,
               .arrival_time = iree_time_now()}};
@@ -733,7 +733,7 @@ static bool loom_serve_image_request_at(
     void* self, iree_host_size_t index,
     loom_serve_http_request_snapshot_t* out_snapshot) {
   const loom_serve_image_service_t* service = self;
-  const image_job_t* job = NULL;
+  const loom_serve_image_job_t* job = NULL;
   const char* phase = "queued";
   if (index < service->pending_count) {
     job = &service->pending[index].job;
@@ -780,7 +780,7 @@ static void loom_serve_image_stop(loom_serve_image_service_t* service) {
       service->telemetry.failure_code ? LOOM_SERVE_TELEMETRY_FAILED
                                       : LOOM_SERVE_TELEMETRY_CANCELLED;
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
-    image_pending_t* pending = &service->pending[i];
+    loom_serve_image_pending_t* pending = &service->pending[i];
     loom_serve_image_request_end(service, &pending->job, outcome,
                                  service->status);
     loom_serve_http_connection_abort(pending->connection);
@@ -853,7 +853,7 @@ static iree_status_t loom_serve_image_advance(
   }
   if (!service->stopping && iree_status_is_ok(service->status) &&
       !service->active && service->pending_count) {
-    const image_pending_t pending = service->pending[0];
+    const loom_serve_image_pending_t pending = service->pending[0];
     --service->pending_count;
     memmove(service->pending, service->pending + 1,
             service->pending_count * sizeof(*service->pending));
@@ -956,7 +956,7 @@ iree_status_t loom_serve_image_service_allocate(
       !options->name.size || !options->pending_capacity ||
       options->heartbeat_interval < 0 ||
       options->pending_capacity >
-          IREE_HOST_SIZE_MAX / sizeof(image_pending_t)) {
+          IREE_HOST_SIZE_MAX / sizeof(loom_serve_image_pending_t)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "image service requires a generator, geometry, "
                             "name and queue capacity");

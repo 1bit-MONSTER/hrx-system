@@ -41,7 +41,7 @@ iree_hal_queue_t* SelectQueue(iree_hal_device_t* device,
   return nullptr;
 }
 
-struct State {
+struct loom_serve_test_control_state_t {
   // Prefill token count/position base/EOS, then decode position/count/EOS.
   std::array<int32_t, 3> control = {};
   // Current selected token followed by retained generated-token history.
@@ -374,9 +374,9 @@ class ControlTest
   // Two independently retained session states.
   std::array<std::array<iree_hal_buffer_t*, 3>, 2> buffers_ = {};
   // Persistent host upload storage, never recycled ahead of completion.
-  std::array<State, 2> inputs_;
+  std::array<loom_serve_test_control_state_t, 2> inputs_;
   // Persistent host readback storage, inspected only after completion.
-  std::array<State, 2> outputs_;
+  std::array<loom_serve_test_control_state_t, 2> outputs_;
   // Device-produced grids and all host payloads retained until the final drain.
   struct {
     // Source schedule/state followed by compiler-owned transient storage.
@@ -577,7 +577,7 @@ TEST_P(ControlTest, FeedbackChecksBothExtentsAndAllowsSubranges) {
   iree_vm_function_t function = {};
   IREE_ASSERT_OK(iree_vm_process_lookup_function(
       process_, IREE_SV("runner"), IREE_SV("feedback"), &function));
-  struct Range {
+  struct loom_serve_test_control_range_t {
     // Host feedback slot supplied by source.
     int32_t slot;
     // Byte range in the device source.
@@ -585,7 +585,7 @@ TEST_P(ControlTest, FeedbackChecksBothExtentsAndAllowsSubranges) {
     // Requested byte count in both source and destination.
     int64_t length;
   };
-  const Range invalid[] = {
+  const loom_serve_test_control_range_t invalid[] = {
       {1, 0, 4}, {0, 0, 520}, {0, 516, 4}, {0, -1, 4}, {0, 0, -1}};
   for (auto range : invalid) {
     iree_vm_variant_t arguments[] = {

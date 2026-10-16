@@ -1,0 +1,69 @@
+target.decl @recognition_target
+
+// Each row integrates its own PCM prefix. Membership and packet size can vary
+// without moving the recurrent accumulator or changing its numerical history.
+kernel.def target(@recognition_target) @accumulate() {
+  %c1 = index.constant 1 : index
+  %rows = index.constant 4 : index
+  kernel.launch.config workgroups(%rows, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%work: buffer, %requests: buffer, %conditioning: buffer, %streams: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %ordinal = kernel.workgroup.id<x> : index
+  %header = buffer.view %work[%origin] : buffer -> view<1xi32>
+  %count32 = view.load %header[0] : view<1xi32> -> i32
+  %count = index.cast %count32 : i32 to index
+  %live = index.cmp ult, %ordinal, %count : index
+  scf.if %live {
+    %stride = index.constant 48 : offset
+    %header_length = index.constant 16 : offset
+    %scaled = index.scale %ordinal, %stride : index, offset -> offset
+    %work_offset = index.add %scaled, %header_length : offset
+    %record = buffer.view %work[%work_offset] : buffer -> view<8xi32>
+    %row32 = view.load %record[0] : view<8xi32> -> i32
+    %initialized = view.load %record[1] : view<8xi32> -> i32
+    %position = view.load %record[2] : view<8xi32> -> i32
+    %frames = view.load %record[3] : view<8xi32> -> i32
+    %done = view.load %record[4] : view<8xi32> -> i32
+    %bounded_row = scalar.assume %row32 [range(%row32, 0, 3)] : i32
+    %row = index.cast %bounded_row : i32 to index
+    %row_stride = index.constant 16 : offset
+    %row_offset = index.scale %row, %row_stride : index, offset -> offset
+    %state = buffer.view %streams[%row_offset] : buffer -> view<1xf32>
+    %zero32 = scalar.constant 0 : i32
+    %ready = scalar.cmpi ne, %initialized, %zero32 : i32
+    %previous = scf.if %ready -> (f32) {
+      %value = view.load %state[0] : view<1xf32> -> f32
+      scf.yield %value : f32
+    } else {
+      %c0 = scalar.constant 0.0 : f32
+      scf.yield %c0 : f32
+    }
+    %sample_offset = index.constant 32 : offset
+    %sample_start = index.add %work_offset, %sample_offset : offset
+    %samples = buffer.view %work[%sample_start] : buffer -> view<3xf32>
+    %bounded_frames = scalar.assume %frames [range(%frames, 0, 3)] : i32
+    %end = index.cast %bounded_frames : i32 to index
+    %begin = index.constant 0 : index
+    %step = index.constant 1 : index
+    %sum = scf.for %i = [%begin to %end step %step](%accumulator = %previous : f32) -> (f32) {
+      %sample = view.load %samples[%i] : view<3xf32> -> f32
+      %next = scalar.addf %accumulator, %sample : f32
+      scf.yield %next : f32
+    }
+    view.store %sum, %state[0] : f32, view<1xf32>
+    %output_offset = index.scale %ordinal, %row_stride : index, offset -> offset
+    %result = buffer.view %output[%output_offset] : buffer -> view<4xi32>
+    %input_end = scalar.addi %position, %frames : i32
+    view.store %input_end, %result[0] : i32, view<4xi32>
+    view.store %frames, %result[1] : i32, view<4xi32>
+    view.store %done, %result[2] : i32, view<4xi32>
+    %values = buffer.view %output[%output_offset] : buffer -> view<4xf32>
+    view.store %sum, %values[3] : f32, view<4xf32>
+  }
+  kernel.return
+}
+
+command.program.def public @recognize() launch(%work: buffer, %requests: buffer, %conditioning: buffer, %streams: buffer, %output: buffer) {
+  kernel.launch @accumulate(%work, %requests, %conditioning, %streams, %output) : (buffer, buffer, buffer, buffer, buffer)
+  command.return
+}

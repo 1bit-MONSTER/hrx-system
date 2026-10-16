@@ -96,6 +96,28 @@ TEST_F(ConfigurationTest, SpeechOwnsAssetsAndSourceOptions) {
                         Parse(Document("speech")));
 }
 
+TEST_F(ConfigurationTest, RecognitionOwnsAssetsAndSourceOptions) {
+  IREE_ASSERT_OK(Parse(Document(
+      "recognition",
+      R"(,"assets":"checkpoint","pending_requests":4,"options":{"context_frames":4096})")));
+  EXPECT_EQ(model_.kind, LOOM_SERVE_MODEL_KIND_RECOGNITION);
+  EXPECT_EQ(String(model_.assets), "checkpoint");
+  EXPECT_EQ(model_.pending_requests, 4u);
+  EXPECT_EQ(model_.variant_capacity, 0u);
+  EXPECT_EQ(String(model_.options), R"({"context_frames":4096})");
+  for (const char* field :
+       {R"(,"assets":"")", R"(,"assets":null)",
+        R"(,"assets":".","weights":"model.gguf")", R"(,"assets":".","rows":1)",
+        R"(,"assets":".","variant_capacity":16)"}) {
+    SCOPED_TRACE(field);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          Parse(Document("recognition", field)));
+    EXPECT_EQ(model_.name.data, nullptr);
+  }
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        Parse(Document("recognition")));
+}
+
 TEST_F(ConfigurationTest, AdmissionIsAnIndependentRegistrationSetting) {
   for (const char* field :
        {R"(,"admission":"open")", R"(,"admission":"drained")"}) {
@@ -156,7 +178,8 @@ TEST_F(ConfigurationTest,
     EXPECT_EQ(model_.text.image.prepare.data, nullptr);
     EXPECT_EQ(model_.sources.values, nullptr);
   }
-  for (const char* kind : {"image", "embedding", "decision"}) {
+  for (const char* kind :
+       {"image", "embedding", "decision", "speech", "recognition"}) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
         Parse(Document(

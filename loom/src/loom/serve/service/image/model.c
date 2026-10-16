@@ -22,7 +22,7 @@
 #include "loom/serve/runtime/program/tokenizer_load.h"
 #include "loomc/iree.h"
 
-typedef struct image_model_stage_t {
+typedef struct loom_serve_image_model_stage_t {
   // Compiled image root, executable ownership and reflection.
   loom_serve_jit_stage_t* compiled;
   // Contiguous command parts sharing one compiler layout and workspace.
@@ -34,18 +34,18 @@ typedef struct image_model_stage_t {
     // First part in the warm VM's flat runner stage table.
     uint32_t first_stage;
   } parts;
-} image_model_stage_t;
+} loom_serve_image_model_stage_t;
 
 // Warm invocation facts remain owned by the model independently of candidate
 // compiler products. The runner separately retains the executable commands.
-typedef struct image_stage_launch_t {
+typedef struct loom_serve_image_stage_launch_t {
   // First entry of this stage in the selected flat runner table.
   uint32_t first_part;
   // Number of submissions in one complete image stage.
   uint32_t part_count;
   // Workspace shared by all parts of an invocation.
   loom_cmd_program_transient_requirement_t transient;
-} image_stage_launch_t;
+} loom_serve_image_stage_launch_t;
 
 struct loom_serve_image_model_t {
   // Allocator owning this model and its host feedback storage.
@@ -90,13 +90,13 @@ struct loom_serve_image_model_t {
     // Number of owned slots, including partially initialized slots on failure.
     uint32_t count;
     // Owned stage array in source declaration order.
-    image_model_stage_t* values;
+    loom_serve_image_model_stage_t* values;
     // Original flat runner table, retained for rollback without recording.
     loom_serve_stage_t* bindings;
     // Recording policy shared by original and replacement commands.
     iree_hal_command_buffer_mode_t command_mode;
     // Owned warm launch facts matching the runner's active table.
-    image_stage_launch_t* selected;
+    loom_serve_image_stage_launch_t* selected;
   } stages;
   // Shared source control and its native submission capabilities.
   struct {
@@ -141,7 +141,7 @@ static void loom_serve_image_model_release_consumers(
   iree_vm_module_release(model->control.runner);
   model->control.runner = NULL;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    image_model_stage_t* stage = &model->stages.values[i];
+    loom_serve_image_model_stage_t* stage = &model->stages.values[i];
     for (uint32_t j = 0; j < stage->parts.count; ++j) {
       iree_hal_command_buffer_release(stage->parts.values[j]);
       stage->parts.values[j] = NULL;
@@ -392,7 +392,7 @@ static iree_status_t loom_serve_image_check_layouts(
       loom_serve_jit_stage_program(model->stages.values[0].compiled);
   const iree_host_size_t binding_count = 3;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    const image_model_stage_t* stage = &model->stages.values[i];
+    const loom_serve_image_model_stage_t* stage = &model->stages.values[i];
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(stage->compiled);
     const loom_serve_preparation_stage_t* declaration =
@@ -414,16 +414,17 @@ static iree_status_t loom_serve_image_check_layouts(
 }
 
 // Part indices belong to the execution catalog, not the source stage ABI.
-static uint32_t loom_serve_image_part_count(uint32_t count,
-                                            const image_model_stage_t* stages) {
-  const image_model_stage_t* last = &stages[count - 1];
+static uint32_t loom_serve_image_part_count(
+    uint32_t count, const loom_serve_image_model_stage_t* stages) {
+  const loom_serve_image_model_stage_t* last = &stages[count - 1];
   return last->parts.first_stage + last->parts.count;
 }
 
-static void loom_serve_image_publish_stages(loom_serve_image_model_t* model,
-                                            const image_model_stage_t* stages) {
+static void loom_serve_image_publish_stages(
+    loom_serve_image_model_t* model,
+    const loom_serve_image_model_stage_t* stages) {
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    model->stages.selected[i] = (image_stage_launch_t){
+    model->stages.selected[i] = (loom_serve_image_stage_launch_t){
         .first_part = stages[i].parts.first_stage,
         .part_count = stages[i].parts.count,
         .transient = loom_serve_jit_stage_program(stages[i].compiled)
@@ -432,7 +433,7 @@ static void loom_serve_image_publish_stages(loom_serve_image_model_t* model,
 }
 
 static iree_status_t loom_serve_image_flatten_stages(
-    uint32_t count, const image_model_stage_t* stages,
+    uint32_t count, const loom_serve_image_model_stage_t* stages,
     iree_allocator_t host_allocator, loom_serve_stage_t** out_bindings) {
   *out_bindings = NULL;
   loom_serve_stage_t* bindings = NULL;
@@ -576,7 +577,8 @@ static iree_status_t loom_serve_image_model_bind(
 // Cold partitioning preserves the compiler's full-barrier cuts and layout.
 // All part commands are owned immediately, including during partial failure.
 static iree_status_t loom_serve_image_record_stage(
-    const loom_serve_image_model_t* model, image_model_stage_t* stage,
+    const loom_serve_image_model_t* model,
+    loom_serve_image_model_stage_t* stage,
     iree_hal_command_buffer_mode_t command_mode) {
   iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
   const loom_cmd_program_t* program =
@@ -635,7 +637,7 @@ static iree_status_t loom_serve_image_model_link(
   uint64_t part_count = 0;
   for (uint32_t i = 0; i < model->stages.count && iree_status_is_ok(status);
        ++i) {
-    image_model_stage_t* stage = &model->stages.values[i];
+    loom_serve_image_model_stage_t* stage = &model->stages.values[i];
     stage->parts.first_stage = (uint32_t)part_count;
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(stage->compiled);
@@ -672,36 +674,36 @@ static iree_status_t loom_serve_image_model_link(
 
 // The catalog owns execution only. Parameter roots and source control remain
 // model-owned; selection copies only small warm launch facts into the model.
-typedef struct image_variant_t {
+typedef struct loom_serve_image_variant_t {
   // Allocator owning candidate descriptors and command arrays.
   iree_allocator_t host_allocator;
   // Owned compiled stage roots and terminal compiler diagnostics.
   loom_serve_stage_set_t* compiled;
   // Owned command parts; compiled pointers borrow the stage set above.
-  image_model_stage_t* stages;
+  loom_serve_image_model_stage_t* stages;
   // Flat runner descriptors borrowing the retained parts.
   loom_serve_stage_t* bindings;
-} image_variant_t;
+} loom_serve_image_variant_t;
 
-typedef struct image_variant_job_t {
+typedef struct loom_serve_image_variant_job_t {
   // Borrowed immutable original declarations and parameter roots.
   loom_serve_image_model_t* model;
   // Owned candidate transferred at terminal completion, including failures.
-  image_variant_t* variant;
+  loom_serve_image_variant_t* variant;
   // Publishes the completed candidate after every compiler access retires.
   loom_serve_variant_completion_fn_t completion;
   // Borrowed publication state until completion.
   void* user_data;
-} image_variant_job_t;
+} loom_serve_image_variant_job_t;
 
 static void loom_serve_image_variant_free(void* value) {
-  image_variant_t* variant = value;
+  loom_serve_image_variant_t* variant = value;
   if (!variant) {
     return;
   }
   for (iree_host_size_t i = 0; variant->stages && i < variant->compiled->count;
        ++i) {
-    image_model_stage_t* stage = &variant->stages[i];
+    loom_serve_image_model_stage_t* stage = &variant->stages[i];
     for (uint32_t j = 0; j < stage->parts.count; ++j) {
       iree_hal_command_buffer_release(stage->parts.values[j]);
     }
@@ -713,9 +715,10 @@ static void loom_serve_image_variant_free(void* value) {
   iree_allocator_free(variant->host_allocator, variant);
 }
 
-static iree_status_t loom_serve_image_variant_record(image_variant_job_t* job) {
+static iree_status_t loom_serve_image_variant_record(
+    loom_serve_image_variant_job_t* job) {
   const loom_serve_image_model_t* model = job->model;
-  image_variant_t* variant = job->variant;
+  loom_serve_image_variant_t* variant = job->variant;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
       variant->host_allocator, model->stages.count, sizeof(*variant->stages),
       (void**)&variant->stages));
@@ -723,7 +726,7 @@ static iree_status_t loom_serve_image_variant_record(image_variant_job_t* job) {
   iree_status_t status = iree_ok_status();
   for (uint32_t i = 0; i < model->stages.count && iree_status_is_ok(status);
        ++i) {
-    image_model_stage_t* stage = &variant->stages[i];
+    loom_serve_image_model_stage_t* stage = &variant->stages[i];
     stage->compiled = variant->compiled->values[i];
     stage->parts.first_stage = (uint32_t)part_count;
     const loom_cmd_program_t* program =
@@ -759,8 +762,8 @@ static iree_status_t loom_serve_image_variant_record(image_variant_job_t* job) {
 static void loom_serve_image_variant_compiled(void* user_data,
                                               iree_status_t status,
                                               loom_serve_stage_set_t* stages) {
-  image_variant_job_t* job = user_data;
-  image_variant_t* variant = job->variant;
+  loom_serve_image_variant_job_t* job = user_data;
+  loom_serve_image_variant_t* variant = job->variant;
   variant->compiled = stages;
   if (iree_status_is_ok(status)) {
     status = loom_serve_image_variant_record(job);
@@ -775,15 +778,16 @@ static iree_status_t loom_serve_image_variant_compile(
     void* self, const loom_serve_sources_t* sources,
     loom_serve_variant_completion_fn_t completion, void* user_data) {
   loom_serve_image_model_t* model = self;
-  image_variant_t* variant = NULL;
+  loom_serve_image_variant_t* variant = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       model->host_allocator, sizeof(*variant), (void**)&variant));
   variant->host_allocator = model->host_allocator;
-  image_variant_job_t* job = NULL;
+  loom_serve_image_variant_job_t* job = NULL;
   iree_status_t status =
       iree_allocator_malloc(model->host_allocator, sizeof(*job), (void**)&job);
   if (iree_status_is_ok(status)) {
-    *job = (image_variant_job_t){model, variant, completion, user_data};
+    *job =
+        (loom_serve_image_variant_job_t){model, variant, completion, user_data};
     status = loom_serve_stage_set_compile_async(
         model->owner, model->preparation, sources,
         loom_serve_image_variant_compiled, job, model->host_allocator);
@@ -797,8 +801,8 @@ static iree_status_t loom_serve_image_variant_compile(
 
 static iree_status_t loom_serve_image_variant_select(void* self, void* value) {
   loom_serve_image_model_t* model = self;
-  const image_variant_t* variant = value;
-  const image_model_stage_t* stages =
+  const loom_serve_image_variant_t* variant = value;
+  const loom_serve_image_model_stage_t* stages =
       variant ? variant->stages : model->stages.values;
   // Image workspace escapes individual runner calls and spans all parts.
   uint64_t workspace_length = 0;
@@ -821,14 +825,14 @@ static iree_status_t loom_serve_image_variant_select(void* self, void* value) {
   return iree_ok_status();
 }
 
-typedef enum image_load_phase_e {
+typedef enum loom_serve_image_load_phase_e {
   IMAGE_LOAD_PREPARE,
   IMAGE_LOAD_STAGES,
   IMAGE_LOAD_BIND,
   IMAGE_LOAD_WEIGHTS,
   IMAGE_LOAD_LINK,
   IMAGE_LOAD_COMPLETE,
-} image_load_phase_t;
+} loom_serve_image_load_phase_t;
 
 struct loom_serve_image_load_t {
   // One private bootstrap task, retired before any native compilation starts.
@@ -840,7 +844,7 @@ struct loom_serve_image_load_t {
   // Borrowed immutable package inputs, retained by the registration owner.
   loom_serve_image_model_options_t options;
   // Owner-only next phase; callbacks never make shared-state transitions.
-  image_load_phase_t phase;
+  loom_serve_image_load_phase_t phase;
   // Next parameter domain during checkpoint preparation.
   uint32_t index;
   // Recording policy shared by consumer and weight preparation commands.
@@ -1211,7 +1215,7 @@ static iree_status_t loom_serve_image_prepare_request(
 
 static iree_status_t loom_serve_image_model_submit_stage(
     loom_serve_image_model_t* model) {
-  const image_stage_launch_t* stage =
+  const loom_serve_image_stage_launch_t* stage =
       &model->stages.selected[model->invocation.stage];
   iree_vm_variant_t arguments[] = {
       iree_vm_variant_from_i32((int32_t)stage->first_part),

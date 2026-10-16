@@ -34,15 +34,17 @@ const char* SourceServiceDirectStageSource() {
   return source ? source : "";
 }
 
-void ModelLifecycle::Wake(void* user_data) {
-  auto* self = static_cast<ModelLifecycle*>(user_data);
+void loom_serve_test_embedding_model_lifecycle_t::Wake(void* user_data) {
+  auto* self =
+      static_cast<loom_serve_test_embedding_model_lifecycle_t*>(user_data);
   iree_task_executor_schedule_process(self->executor, &self->process);
 }
 
-iree_status_t ModelLifecycle::Drain(iree_task_process_t* process,
-                                    const iree_task_worker_context_t* context,
-                                    iree_task_process_drain_result_t* result) {
-  auto* self = static_cast<ModelLifecycle*>(process->user_data);
+iree_status_t loom_serve_test_embedding_model_lifecycle_t::Drain(
+    iree_task_process_t* process, const iree_task_worker_context_t* context,
+    iree_task_process_drain_result_t* result) {
+  auto* self = static_cast<loom_serve_test_embedding_model_lifecycle_t*>(
+      process->user_data);
   if (!self->complete && self->retiring) {
     if (!self->retirement_started) {
       self->retirement_started = true;
@@ -95,14 +97,16 @@ iree_status_t ModelLifecycle::Drain(iree_task_process_t* process,
   return iree_ok_status();
 }
 
-void ModelLifecycle::Release(iree_task_process_t* process) {
-  auto* self = static_cast<ModelLifecycle*>(process->user_data);
+void loom_serve_test_embedding_model_lifecycle_t::Release(
+    iree_task_process_t* process) {
+  auto* self = static_cast<loom_serve_test_embedding_model_lifecycle_t*>(
+      process->user_data);
   std::lock_guard<std::mutex> lock(self->mutex);
   self->released = true;
   self->condition.notify_one();
 }
 
-iree_status_t ModelLifecycle::Run(
+iree_status_t loom_serve_test_embedding_model_lifecycle_t::Run(
     loom_serve_device_t* device,
     const loom_serve_finite_model_options_t& options) {
   IREE_RETURN_IF_ERROR(loom_serve_finite_load_allocate(
@@ -110,12 +114,14 @@ iree_status_t ModelLifecycle::Run(
   return RunOwner(device);
 }
 
-iree_status_t ModelLifecycle::Retire(loom_serve_device_t* device) {
+iree_status_t loom_serve_test_embedding_model_lifecycle_t::Retire(
+    loom_serve_device_t* device) {
   retiring = true;
   return RunOwner(device);
 }
 
-iree_status_t ModelLifecycle::RunOwner(loom_serve_device_t* device) {
+iree_status_t loom_serve_test_embedding_model_lifecycle_t::RunOwner(
+    loom_serve_device_t* device) {
   executor = loom_serve_host_executor(loom_serve_device_host(device));
   iree_task_process_initialize(Drain, 0, 1, &process);
   process.user_data = this;
@@ -196,7 +202,7 @@ void SourceEmbeddingServiceTest::CreateModel(const std::string& directory) {
       .asset_directory = IREE_SV("."),
       .options = IREE_SV("{\"batch_units\":64}"),
   };
-  ModelLifecycle load;
+  loom_serve_test_embedding_model_lifecycle_t load;
   IREE_ASSERT_OK(load.Run(device_, model_options));
   model_ = load.model;
   EXPECT_EQ(loom_serve_finite_model_batch_limit(model_), 64u);
@@ -290,7 +296,7 @@ bool SourceEmbeddingServiceTest::Step(loom_serve_http_service_flags_t flags) {
   auto* pool = loom_serve_device_memory_pool(device_);
   if (interface_.is_active(interface_.self) ||
       (pool && loom_serve_memory_pool_is_pending(pool))) {
-    struct Wait {
+    struct loom_serve_test_embedding_wait_t {
       // Shared release counter.
       std::atomic<uint64_t>* wakes;
       // Last event already consumed by this turn.
@@ -299,7 +305,8 @@ bool SourceEmbeddingServiceTest::Step(loom_serve_http_service_flags_t flags) {
     iree_notification_await(
         &notification_,
         [](void* data) {
-          const auto* wait = static_cast<Wait*>(data);
+          const auto* wait =
+              static_cast<loom_serve_test_embedding_wait_t*>(data);
           return wait->wakes->load() > wait->previous;
         },
         &wait, iree_infinite_timeout());
