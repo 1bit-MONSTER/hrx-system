@@ -1,0 +1,49 @@
+func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
+func.decl import("prepare") @dispatch(%root: buffer, %tag: i64) -> (i32)
+
+func.decl import("prepare") @workspace_limit(%stage: i32, %bytes: i64)
+
+// advance
+global.rodata.def @advance = bytes("616476616e6365")
+
+// selected_pair
+global.rodata.def @selected_pair = bytes("73656c65637465645f70616972")
+
+// invalid_argument
+global.rodata.def @invalid_argument = bytes("696e76616c69645f617267756d656e74")
+
+// increment_0
+global.rodata.def @increment_0 = bytes("696e6372656d656e745f30")
+
+// temporary_advance
+global.rodata.def @temporary_advance = bytes("74656d706f726172795f616476616e6365")
+
+func.def public @prepare(%fail: i32) {
+  %tag = scalar.constant 0 : i64
+  %advance = global.load @advance : buffer
+  %first = func.call @stage(%advance, %tag) : (buffer, i64) -> (i32)
+  %c0 = scalar.constant 0 : i32
+  %reject = scalar.cmpi ne, %fail, %c0 : i32
+  scf.if %reject {
+    %root = global.load @invalid_argument : buffer
+    %middle = func.call @stage(%root, %tag) : (buffer, i64) -> (i32)
+  } else {
+    %root = global.load @selected_pair : buffer
+    %middle = func.call @stage(%root, %tag) : (buffer, i64) -> (i32)
+  }
+  %increment = global.load @increment_0 : buffer
+  %last = func.call @dispatch(%increment, %tag) : (buffer, i64) -> (i32)
+  func.return
+}
+
+func.def public @workspace_constrained() {
+  %tag = scalar.constant 0 : i64
+  %root = global.load @temporary_advance : buffer
+  %first = func.call @stage(%root, %tag) : (buffer, i64) -> (i32)
+  %bytes = scalar.constant 1 : i64
+  func.call @workspace_limit(%first, %bytes) : (i32, i64)
+  %advance = global.load @advance : buffer
+  %last = func.call @stage(%advance, %tag) : (buffer, i64) -> (i32)
+  func.return
+}

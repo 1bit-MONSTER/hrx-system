@@ -364,6 +364,58 @@ TEST_P(WorkspaceTest, TrimReportsRetainedBackingBeforeColdReturnsComplete) {
 }
 
 TEST_P(WorkspaceTest,
+       IdleExpiryWaitsForRetirementAndDoesNotRefreshOnObservation) {
+  const auto timeout = iree_make_duration_ms(3600000);
+  EXPECT_FALSE(
+      loom_serve_workspace_trim_idle(workspace_, iree_time_now(), timeout));
+  IREE_ASSERT_OK(Allocate(producer_));
+  const auto allocated = loom_serve_execution_frontier(producer_.execution);
+  IREE_ASSERT_OK(
+      loom_serve_execution_wait(producer_.execution, allocated.values[0]));
+  const auto distant = iree_time_now() + 2 * timeout;
+  // A caller-owned view excludes expiry even after the model timeline retires.
+  EXPECT_TRUE(loom_serve_workspace_trim_idle(workspace_, distant, timeout));
+  EXPECT_EQ(loom_serve_workspace_statistics(workspace_).reservation_count, 1u);
+  const iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload =
+          {
+              .source = input_.data(),
+              .target_buffer = producer_.buffer,
+              .length = sizeof(input_),
+          },
+  };
+  uint64_t value = 0;
+  IREE_ASSERT_OK(
+      loom_serve_execution_transfer(producer_.execution, 1, &upload, &value));
+  IREE_ASSERT_OK(DownloadAndRelease(producer_));
+  IREE_ASSERT_OK(loom_serve_execution_drain(producer_.execution));
+  // Final raw queue ownership can outlive semaphore readiness. Collection is
+  // the production retirement predicate, not a delay or a larger timeout.
+  while (loom_serve_workspace_statistics(workspace_).reservation_count) {
+    std::this_thread::yield();
+  }
+  const auto retired = iree_time_now();
+  EXPECT_TRUE(loom_serve_workspace_trim_idle(workspace_, retired, timeout));
+  EXPECT_TRUE(loom_serve_workspace_trim_idle(workspace_, retired + timeout / 2,
+                                             timeout));
+  EXPECT_GT(loom_serve_workspace_statistics(workspace_).bytes_committed, 0u);
+  // Holding the native release owner cannot block the scheduling caller.
+  workspace_allocator_.PauseMaintenance(maintenance_);
+  EXPECT_FALSE(
+      loom_serve_workspace_trim_idle(workspace_, retired + timeout, timeout));
+  EXPECT_FALSE(loom_serve_workspace_trim_idle(workspace_, retired + 2 * timeout,
+                                              timeout));
+  workspace_allocator_.Resume();
+  TrimAndDrainMaintenance();
+  EXPECT_EQ(loom_serve_workspace_statistics(workspace_).bytes_committed, 0u);
+  IREE_ASSERT_OK(CompleteIndependentWork());
+  for (uint32_t value : independent_.output) {
+    EXPECT_EQ(value, 0x13579BDFu);
+  }
+}
+
+TEST_P(WorkspaceTest,
        SharedEscapeRetiresAfterLastReaderWithoutBlockingOtherWork) {
   IREE_ASSERT_OK(Allocate(producer_));
   IREE_ASSERT_OK(Allocate(consumer_));

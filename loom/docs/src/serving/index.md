@@ -35,12 +35,14 @@ controls, pressure, counters and telemetry cursors.
 | `--held_requests=N` | `-1` | Closed-gate holding credit; `-1` selects half the connection limit, `0` rejects rather than holds. |
 | `--request_body_bytes=N` | `8388608` | Maximum HTTP body bytes per connection. |
 | `--heartbeat_ms=N` | `1000` | Per-model stderr JSONL heartbeat interval; `0` disables periodic reporting, not cumulative counters. |
+| `--workspace_idle_ms=N` | `0` | Trim reusable command-workspace backing after the device's last workspace allocation retires and stays idle for this interval; `0` disables expiry. |
+| `--parameter_idle_ms=N` | `0` | Deactivate unpinned elastic model weights after this idle interval; `0` disables expiry. Sessions and KV/prefix history survive. |
 | `--pool_backing=elastic\|fixed` | `elastic` | Demand-committed retained slabs or eagerly backed retained storage. |
 | `--slab_bytes=N` | `67108864` | Elastic physical slab size in bytes (64 MiB); `0` uses the allocator recommendation. Ignored for fixed backing. |
 | `--memory_bytes=N` | `0` | Serving-managed physical parameter/state limit; `0` imposes no serving limit. |
 
 Model, connection and body capacities must be positive. Holding credit must
-remain below connection capacity. Heartbeat intervals, slab sizes and memory
+remain below connection capacity. Heartbeat/idle intervals, slab sizes and memory
 limits are nonnegative. A nonzero memory limit requires elastic backing and
 exactly one device: independent device pools cannot enforce a shared byte limit.
 It excludes invocation workspace, host allocations and driver overhead; it is

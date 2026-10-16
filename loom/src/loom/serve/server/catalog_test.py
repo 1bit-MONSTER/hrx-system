@@ -463,14 +463,22 @@ def check_device_trim(client, backing, workers):
             trimmed = client.request(
                 "/v1/devices/trim", {"device": 0, "target_bytes": 0}
             )
+            # Trim accepts native release work; physical capacity returns only
+            # after the maintenance owner completes that work.
+            while True:
+                device = client.request("/v1/status")["server"]["resources"]["devices"][
+                    0
+                ]
+                memory_cold = device["memory"]["retained"]
+                if memory_cold is None or memory_cold["releasing_bytes"] == 0:
+                    break
             cold = snapshot()
             assert cold["incarnation"] == before["incarnation"], cold
             assert cold["compilation"] == before["compilation"], cold
             assert cold["status"]["admission"] == "drained", cold
             assert cold["status"]["held_requests"] == 1, cold
             memory_pinned = pinned["device"]["memory"]["retained"]
-            memory_cold = trimmed["device"]["memory"]["retained"]
-            workspace_cold = trimmed["device"]["memory"]["workspace"]
+            workspace_cold = device["memory"]["workspace"]
             # Counter ownership is the device, not a trim generation or model.
             for name in counter_names:
                 assert workspace_cold[name] >= workspace_before[name], (
@@ -674,6 +682,7 @@ def check_empty_server(server_command, directory, device, backing):
                 "held_requests": 0,
                 "observer_capacity": 18,
                 "observers": 0,
+                "idle": {"workspace_ms": 0, "parameter_ms": 0},
             }, server
             assert resources["listeners"] == [
                 {"address": address, "waiting_for_capacity": False}
@@ -692,6 +701,8 @@ def check_empty_server(server_command, directory, device, backing):
                     "limit_bytes": memory_limit or None,
                     "reserved_bytes": 0,
                     "committed_bytes": 0,
+                    "pending_bytes": 0,
+                    "releasing_bytes": 0,
                     "peak_bytes": 0,
                     "released_bytes": 0,
                 }

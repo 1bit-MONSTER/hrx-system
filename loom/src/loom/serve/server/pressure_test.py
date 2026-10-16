@@ -201,9 +201,15 @@ def check(server, source, directory, workers, memory_bytes, retention):
             assert admission["count"] >= 1, beta
         elif expected == 503:
             # A retained checkpoint can exhaust mutable KV backing after
-            # parameter admission succeeds. This is not a parameter wait.
-            assert admission["count"] == 0, beta
+            # parameter admission succeeds. Earlier eviction may have required
+            # a native release wait, but that wait has completed, and the new
+            # weights are resident when state admission rejects the request.
             assert beta["parameters"]["active"], beta
+            alpha = next(
+                item["loom"] for item in after["data"] if item["id"] == "alpha"
+            )
+            assert not alpha["parameters"]["active"], alpha
+            assert alpha["parameters"]["committed_bytes"] == 0, alpha
         assert admission["duration_seconds"] >= 0, beta
         connection = http.client.HTTPConnection(address.hostname, address.port)
         try:

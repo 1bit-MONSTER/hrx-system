@@ -258,6 +258,7 @@ loom_cc_library(
     "elastic_storage_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::testing::maintenance_gate
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -369,6 +370,7 @@ loom_cc_library(
     loom::serve::runtime::program::module
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::stage_set
     loom::serve::runtime::program::variant_pool
     loom::serve::runtime::storage::block_pool
     loom::serve::runtime::storage::memory

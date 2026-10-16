@@ -152,10 +152,11 @@ static void loom_serve_finite_registration_set_pinned(void* self, bool pinned) {
       loom_serve_finite_model_residency(registration->model), pinned);
 }
 
-static iree_status_t loom_serve_finite_registration_deactivate(void* self) {
+static iree_status_t loom_serve_finite_registration_deactivate(
+    void* self, bool* out_complete) {
   finite_registration_t* registration = self;
   return loom_serve_residency_deactivate(
-      loom_serve_finite_model_residency(registration->model));
+      loom_serve_finite_model_residency(registration->model), out_complete);
 }
 
 static iree_status_t loom_serve_finite_registration_activate(
@@ -320,9 +321,10 @@ static void loom_serve_image_registration_set_pinned(void* self, bool pinned) {
       loom_serve_image_model_residency(registration->model), pinned);
 }
 
-static iree_status_t loom_serve_image_registration_deactivate(void* self) {
+static iree_status_t loom_serve_image_registration_deactivate(
+    void* self, bool* out_complete) {
   image_registration_t* registration = self;
-  return loom_serve_image_model_deactivate(registration->model);
+  return loom_serve_image_model_deactivate(registration->model, out_complete);
 }
 
 static iree_status_t loom_serve_image_registration_activate(
@@ -488,10 +490,11 @@ static void loom_serve_speech_registration_set_pinned(void* self, bool pinned) {
       loom_serve_speech_model_residency(registration->model), pinned);
 }
 
-static iree_status_t loom_serve_speech_registration_deactivate(void* self) {
+static iree_status_t loom_serve_speech_registration_deactivate(
+    void* self, bool* out_complete) {
   speech_registration_t* registration = self;
   return loom_serve_residency_deactivate(
-      loom_serve_speech_model_residency(registration->model));
+      loom_serve_speech_model_residency(registration->model), out_complete);
 }
 
 static iree_status_t loom_serve_speech_registration_activate(
@@ -654,9 +657,10 @@ static void loom_serve_text_registration_set_pinned(void* self, bool pinned) {
       loom_serve_text_model_residency(registration->model), pinned);
 }
 
-static iree_status_t loom_serve_text_registration_deactivate(void* self) {
+static iree_status_t loom_serve_text_registration_deactivate(
+    void* self, bool* out_complete) {
   text_registration_t* registration = self;
-  return loom_serve_text_model_deactivate(registration->model);
+  return loom_serve_text_model_deactivate(registration->model, out_complete);
 }
 
 static iree_status_t loom_serve_text_registration_activate(

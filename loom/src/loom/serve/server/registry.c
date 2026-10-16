@@ -466,13 +466,18 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
         model->service.snapshot(model->service.self);
     if (!snapshot.queued_requests && !snapshot.active_requests &&
         !model->service.is_active(model->service.self)) {
-      model->status = model->registration.deactivate(model->registration.self);
-      model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_NONE;
+      bool complete = false;
+      model->status =
+          model->registration.deactivate(model->registration.self, &complete);
       if (!iree_status_is_ok(model->status)) {
         loom_serve_registry_record_error(model, model->status);
         terminal_status = iree_status_clone(model->status);
+        complete = true;
       }
-      progress = true;
+      if (complete) {
+        model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_NONE;
+        progress = true;
+      }
     }
   }
   if (model->phase == LOOM_SERVE_REGISTRATION_RETIRING) {

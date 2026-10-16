@@ -124,7 +124,6 @@ static void iree_tokenizer_decoder_wordpiece_destroy(
 static iree_status_t iree_tokenizer_decoder_wordpiece_state_initialize(
     const iree_tokenizer_decoder_t* base_decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   const iree_tokenizer_decoder_wordpiece_t* decoder =
       (const iree_tokenizer_decoder_wordpiece_t*)base_decoder;
   iree_tokenizer_decoder_wordpiece_state_t* state =
@@ -144,16 +143,11 @@ static iree_status_t iree_tokenizer_decoder_wordpiece_state_initialize(
   state->copy_position = 0;
 
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_wordpiece_state_deinitialize(
-    iree_tokenizer_decoder_state_t* state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
-  (void)state;
-  IREE_TRACE_ZONE_END(z0);
-}
+    iree_tokenizer_decoder_state_t* state) {}
 
 // Processes a single token through the WordPiece decoder.
 // Returns true if token was fully consumed, false if buffer full (resume

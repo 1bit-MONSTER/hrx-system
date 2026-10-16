@@ -52,6 +52,7 @@ loom_cc_library(
     hdrs = ["state.h"],
     deps = [
         "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/execution",
         "//loom/src/loom/serve/runtime/execution:retirement",
         "//loom/src/loom/serve/runtime/storage:memory",
         "//runtime/src/iree/base",
@@ -85,6 +86,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/program:module",
         "//loom/src/loom/serve/runtime/program:preparation",
         "//loom/src/loom/serve/runtime/program:sources",
+        "//loom/src/loom/serve/runtime/program:stage_set",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
@@ -123,6 +125,7 @@ loom_cc_library(
         "//loom/src/loom/serve/service",
         "//loom/src/loom/serve/telemetry:latency",
         "//loom/src/loom/serve/testing:http_harness",
+        "//loom/src/loom/serve/testing:maintenance_gate",
         "//loom/src/loom/serve/testing:model",
         "//loom/src/loom/serve/testing:package",
         "//loom/src/loom/serve/testing:service_application",

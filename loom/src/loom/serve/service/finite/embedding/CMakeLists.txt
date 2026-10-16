@@ -157,6 +157,7 @@ loom_cc_library(
     ::source_service_fixture
     iree::testing::gtest
     iree::testing::temp_file
+    loom::serve::testing::maintenance_gate
     loom::serve::testing::model
     loom::serve::testing::package
     loom::serve::testing::stalled_stderr

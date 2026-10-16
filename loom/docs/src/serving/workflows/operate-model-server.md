@@ -117,6 +117,13 @@ Wait for `parameter_operation:"idle"`, check `loom.error`, and inspect
 `parameters.active` and `committed_bytes`. Prepared fixed-backed weights cannot
 deactivate and return 409; a metadata-only drained registration is already cold.
 
+Native weight allocation and release run independently of the serving scheduler:
+another ready model can continue serving during either transition. Retained
+memory reports `pending_bytes` for accepted allocations and `releasing_bytes`
+for releases still in flight. Releasing bytes remain included in
+`committed_bytes` until native cleanup completes; they are not free capacity.
+Requests waiting for that capacity resume from its completion notification.
+
 Undrain and conflicting residency operations return 409 while an operation is
 pending. Ordinary inference can reload evicted weights on demand without
 re-JIT. Successful activation does not itself pin weights against later pressure.
@@ -125,6 +132,38 @@ re-JIT. Successful activation does not itself pin weights against later pressure
 change eviction eligibility. Pinning is not activation: a cold registration
 can remember the pin without loading its weights. Status exposes this policy
 as `loom.parameter_pinned`. A pending deactivation cannot be pinned.
+
+## Return idle backing without removing models
+
+Automatic reclamation is opt-in. For example, this server releases unused
+command workspace after 30 seconds and unpinned weights after five minutes:
+
+```sh
+loom-serve --device=amdgpu --model=/srv/models/scout/model.json \
+  --workspace_idle_ms=30000 --parameter_idle_ms=300000
+```
+
+Each duration is independent; `0` disables that policy. Workspace expiry applies
+to each device's shared command pool after its last allocation actually retires.
+Weight expiry starts when a model's last invocation pin or explicit parameter
+pin is released. Polling status, receiving telemetry, and leaving a client
+connected do not keep idle resources hot. Explicitly pinned weights and active
+invocations remain protected. Fixed-backed weights cannot deactivate; workspace
+expiry works with either backing policy.
+
+Expiry queues native release without draining the server or waiting on unrelated
+requests. The next invocation reloads weights and reuses the compiled programs.
+Registrations, sessions, KV/prefix history, and named checkpoints stay intact:
+these policies release reloadable backing, not conversation history. They
+therefore need not reduce an idle process to its minimum possible footprint.
+
+`/v1/status` publishes the configured durations in `server.idle.workspace_ms`
+and `server.idle.parameter_ms`. Device workspace commitment and per-model
+parameter activity/accounting show reclamation and subsequent reloads. Expiry
+checks use the smaller enabled duration, capped at one second; physical release
+finishes asynchronously. When nothing awaits retirement or expiry, maintenance
+stops rearming its timer. Heartbeat reporting has an independent interval and
+can be disabled without disabling reclamation.
 
 ## Replace native code without reloading weights
 
@@ -241,9 +280,11 @@ curl --fail --silent --show-error http://127.0.0.1:8080/v1/devices/trim \
 
 This requests reduction of eligible serving-managed commitment toward the
 target. It releases idle workspace and unpinned reloadable parameters, not
-active work or retained conversations. HTTP 200 returns actual accounting;
-protected storage can prevent reaching the target. Fixed weights are not
-reclaimable. Trim does not change the configured limit or discard compiled code.
+active work or retained conversations. HTTP 200 returns current accounting,
+including accepted native releases that have not completed. `/v1/status`
+reports subsequent completion; protected storage can prevent reaching the target.
+Fixed weights are not reclaimable. Trim does not change the configured limit or
+discard compiled code.
 
 The [observation workflow](observe-model-server.md) explains retained versus
 workspace accounting. Their sum is not total VRAM or process RAM, and reported

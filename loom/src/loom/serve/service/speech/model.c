@@ -22,6 +22,7 @@
 #include "loom/serve/runtime/program/module.h"
 #include "loom/serve/runtime/program/preparation.h"
 #include "loom/serve/runtime/program/program.h"
+#include "loom/serve/runtime/program/stage_set.h"
 #include "loom/serve/service/speech/state.h"
 #include "loomc/iree.h"
 
@@ -259,7 +260,7 @@ static iree_status_t loom_serve_speech_model_destroy_resources(
     iree_allocator_free(model->host_allocator, model->weights.sources);
     iree_allocator_free(model->host_allocator, model->weights.plans);
     iree_allocator_free(model->host_allocator, (void*)model->name.data);
-    loom_serve_jit_free(model->jit);
+    loom_serve_jit_release(model->jit);
     iree_tokenizer_free(model->tokenizer);
     iree_allocator_free(model->host_allocator, model->output.data);
     iree_allocator_free(model->host_allocator, model);
@@ -281,7 +282,7 @@ iree_status_t loom_serve_speech_model_free(loom_serve_speech_model_t* model) {
   for (iree_host_size_t i = 0; i < model->weights.count; ++i) {
     loom_serve_weights_await_retirement(model->weights.plans[i]);
   }
-  loom_serve_retirement_await(&model->state.retirement);
+  loom_serve_speech_state_await_retirement(&model->state);
   return iree_status_join(status,
                           loom_serve_speech_model_destroy_resources(model));
 }
@@ -332,13 +333,11 @@ static iree_status_t loom_serve_speech_prepare(
   for (iree_host_size_t i = 0;
        i < IREE_ARRAYSIZE(inputs) && iree_status_is_ok(status); ++i) {
     iree_vm_buffer_t* buffer = NULL;
-    status = iree_vm_buffer_create(inputs[i].size, 8, host_allocator, &buffer);
+    status = iree_vm_buffer_clone(
+        IREE_VM_BUFFER_ACCESS_FLAG_READ | IREE_VM_BUFFER_ACCESS_FLAG_WRITE,
+        iree_make_const_byte_span(inputs[i].data, inputs[i].size), 8,
+        host_allocator, &buffer);
     if (iree_status_is_ok(status)) {
-      iree_byte_span_t bytes;
-      status = iree_vm_buffer_map_write(buffer, 0, inputs[i].size, &bytes);
-      if (iree_status_is_ok(status)) {
-        memcpy(bytes.data, inputs[i].data, inputs[i].size);
-      }
       arguments[i] = iree_vm_buffer_variant_from_ptr_move(
           &model->control.vm_types, &buffer);
     }
@@ -760,7 +759,7 @@ static iree_status_t loom_serve_speech_model_link(
       iree_max(model->batch_input_capacity, model->output_capacity),
       LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
   IREE_RETURN_IF_ERROR(loom_serve_speech_state_allocate(
-      &model->state, model->owner, model->request_capacity,
+      &model->state, model->owner, model->execution, model->request_capacity,
       model->input_capacity, model->stream_capacity,
       model->conditioning_capacity, LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
@@ -772,6 +771,7 @@ static iree_status_t loom_serve_speech_model_link(
 typedef enum speech_load_phase_e {
   SPEECH_LOAD_PREPARE,
   SPEECH_LOAD_STAGES,
+  SPEECH_LOAD_BIND,
   SPEECH_LOAD_WEIGHTS,
   SPEECH_LOAD_LINK,
   SPEECH_LOAD_COMPLETE,
@@ -788,7 +788,7 @@ struct loom_serve_speech_load_t {
   loom_serve_speech_model_options_t options;
   // Owner-only next phase; callbacks never make shared-state transitions.
   speech_load_phase_t phase;
-  // Next stage or weight domain within the current phase.
+  // Next parameter domain during checkpoint preparation.
   iree_host_size_t index;
   // Recording policy shared by consumer and weight preparation commands.
   iree_hal_command_buffer_mode_t command_mode;
@@ -848,7 +848,7 @@ static iree_status_t loom_serve_speech_load_prepare(
       load->options.sources.control, IREE_ARRAYSIZE(roots), roots,
       &model->compilation, host_allocator, &load->module);
   IREE_RETURN_IF_ERROR(status);
-  return loom_serve_jit_allocate(
+  return loom_serve_jit_create(
       loom_serve_device_handle(model->owner),
       loom_serve_device_dispatch_queue(model->owner),
       loom_serve_device_host(model->owner), &load->options.sources, NULL,
@@ -873,9 +873,13 @@ static const loomc_task_vtable_t speech_load_vtable = {
 
 static void loom_serve_speech_load_compiled(void* user_data,
                                             iree_status_t status,
-                                            loom_serve_jit_stage_t* compiled) {
+                                            loom_serve_stage_set_t* compiled) {
   loom_serve_speech_load_t* load = user_data;
-  load->model->stages.values[load->index - 1].compiled = compiled;
+  for (iree_host_size_t i = 0; i < compiled->count; ++i) {
+    load->model->stages.values[i].compiled = compiled->values[i];
+    compiled->values[i] = NULL;
+  }
+  loom_serve_stage_set_free(compiled);
   loom_serve_speech_load_complete(load, status);
 }
 
@@ -949,26 +953,18 @@ iree_status_t loom_serve_speech_load_advance(
         submitted = iree_status_is_ok(status);
         break;
       case SPEECH_LOAD_STAGES:
-        if (load->index < model->stages.count) {
-          const loom_serve_preparation_stage_t* declaration =
-              loom_serve_preparation_stage(model->preparation, load->index++);
-          iree_slim_mutex_lock(&load->event.mutex);
-          load->event.pending = true;
-          iree_slim_mutex_unlock(&load->event.mutex);
-          status =
-              declaration->kind == LOOM_SERVE_PREPARATION_STAGE_DISPATCH
-                  ? loom_serve_jit_compile_dispatch_async(
-                        model->jit, declaration->root, &declaration->config,
-                        loom_serve_speech_load_compiled, load)
-                  : loom_serve_jit_compile_async(
-                        model->jit, declaration->root, &declaration->config,
-                        loom_serve_speech_load_compiled, load);
-          submitted = iree_status_is_ok(status);
-        } else {
-          status = loom_serve_speech_model_bind(model);
-          load->index = 0;
-          load->phase = SPEECH_LOAD_WEIGHTS;
-        }
+        load->phase = SPEECH_LOAD_BIND;
+        iree_slim_mutex_lock(&load->event.mutex);
+        load->event.pending = true;
+        iree_slim_mutex_unlock(&load->event.mutex);
+        status = loom_serve_stage_set_compile_catalog_async(
+            model->jit, model->preparation, loom_serve_speech_load_compiled,
+            load, load->host_allocator);
+        submitted = iree_status_is_ok(status);
+        break;
+      case SPEECH_LOAD_BIND:
+        status = loom_serve_speech_model_bind(model);
+        load->phase = SPEECH_LOAD_WEIGHTS;
         break;
       case SPEECH_LOAD_WEIGHTS:
         if (load->index < model->weights.count) {
@@ -1227,6 +1223,7 @@ static bool loom_serve_speech_generator_complete_admit(
     void* self, void* opaque_invocation) {
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
+  loom_serve_speech_state_complete_backing(&model->state);
   if (!invocation->reserved) {
     loom_serve_residency_release(model->residency);
   }
@@ -1511,11 +1508,17 @@ static iree_status_t loom_serve_speech_generator_collect(
 }
 
 static iree_status_t loom_serve_speech_generator_release(
-    void* self, void* opaque_invocation) {
+    void* self, void* opaque_invocation, bool* out_complete,
+    loom_serve_execution_frontier_t* out_frontier) {
+  *out_frontier = (loom_serve_execution_frontier_t){0};
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
   IREE_RETURN_IF_ERROR(loom_serve_speech_state_release_row(
-      &model->state, invocation->row_index));
+      &model->state, invocation->row_index, out_complete));
+  if (!*out_complete) {
+    *out_frontier = loom_serve_execution_frontier(model->execution);
+    return iree_ok_status();
+  }
   loom_serve_residency_release(model->residency);
   loom_serve_speech_invocation_free(model, invocation);
   return iree_ok_status();

@@ -30,6 +30,7 @@ loom_cc_library(
     "router.c"
   DEPS
     ::configuration
+    ::maintenance
     ::registry
     ::resources
     iree::base
@@ -37,6 +38,7 @@ loom_cc_library(
     iree::base::threading
     iree::task
     iree::tokenizer
+    loom::serve::runtime::device
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::residency
     loom::serve::runtime::program::compilation
@@ -61,6 +63,24 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    maintenance
+  HDRS
+    "maintenance.h"
+  SRCS
+    "maintenance.c"
+  DEPS
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    loom::serve::runtime::device
+    loom::serve::runtime::host
+    loom::serve::runtime::host::timer
+    loom::serve::runtime::host::wake
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     resources
   HDRS
     "resources.h"
@@ -72,11 +92,26 @@ loom_cc_library(
     iree::base::internal::json
     iree::hal
     loom::serve::runtime::device
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::parameter::residency
     loom::serve::runtime::storage::memory
     loom::serve::transport::http::listener
     loom::util::json
     loom::util::stream
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    maintenance_test
+  SRCS
+    "maintenance_test.cc"
+  DEPS
+    ::maintenance
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::serve::runtime::device
 )
 
 if(IREE_HAL_DRIVER_TASK)

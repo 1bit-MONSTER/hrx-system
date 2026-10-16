@@ -448,8 +448,12 @@ static iree_status_t loom_serve_text_submit_trim(
 static iree_status_t loom_serve_text_complete_trim(
     loom_serve_text_service_t* service) {
   loom_serve_text_trim_result_t* result = &service->pool.trim.result;
-  IREE_RETURN_IF_ERROR(
-      loom_serve_text_model_complete_trim(service->model, result));
+  bool complete = false;
+  IREE_RETURN_IF_ERROR(loom_serve_text_model_complete_trim(
+      service->model, result, &complete, &service->completion.frontier));
+  if (!complete) {
+    return loom_serve_text_await_work(service, TEXT_WORK_TRIM);
+  }
   service->pool.trim.pending = false;
   const loom_serve_memory_statistics_t memory =
       loom_serve_text_model_memory_statistics(service->model);

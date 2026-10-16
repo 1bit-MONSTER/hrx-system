@@ -65,12 +65,16 @@ void loom_serve_timer_set_observer(loom_serve_timer_t* timer,
 // Timer readiness alone cannot release model admission capacity.
 bool loom_serve_timer_is_pending(loom_serve_timer_t* timer);
 
-// Consumes readiness and arms the next deadline. The initial advance and each
-// successful expiry produce a tick; cancellation readiness only reports
-// progress. Stopping is sticky and cancels through the poll owner. Continue
-// advancing pending work before detaching the observer or destroying storage.
+// Consumes readiness and arms the next deadline while enabled. Disabling
+// leaves an accepted alarm to retire but prevents rearming; enabling later
+// resumes periodic ticks without rebuilding the timer. Each arm produces a
+// tick, including initial activation and rearming after expiry. Consuming an
+// expiry while disabled reports progress without a tick. Stopping is sticky
+// and cancels through the poll owner. Continue advancing pending work before
+// detaching the observer or destroying storage.
 iree_status_t loom_serve_timer_advance(loom_serve_timer_t* timer, bool stopping,
-                                       bool* out_progress, bool* out_tick);
+                                       bool enabled, bool* out_progress,
+                                       bool* out_tick);
 
 // Releases synchronization after all callbacks and outcomes retire. Never
 // waits.

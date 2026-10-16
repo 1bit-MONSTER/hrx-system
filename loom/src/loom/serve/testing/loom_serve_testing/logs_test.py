@@ -8,11 +8,13 @@ import collections
 import contextlib
 import http.server
 import json
+import select
 import socket
 import socketserver
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -43,7 +45,9 @@ def batch(model, records, next_position, *, identity="100:1", oldest=0):
 
 
 @contextlib.contextmanager
-def endpoint(replies, *, unix_socket=None):
+def endpoint(
+    replies, *, unix_socket=None, streaming=False, chunked=False, release=None
+):
     replies = collections.deque(replies)
     requests = []
 
@@ -54,9 +58,17 @@ def endpoint(replies, *, unix_socket=None):
                 replies.popleft() if replies else (500, b"unexpected poll")
             )
             self.send_response(status)
-            self.send_header("Content-Length", str(len(payload)))
+            if streaming:
+                self.send_header("Content-Type", "text/event-stream")
+                if chunked:
+                    self.send_header("Transfer-Encoding", "chunked")
+            else:
+                self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+            self.wfile.flush()
+            if release is not None:
+                release.wait()
 
         def log_message(self, *_):
             pass
@@ -82,11 +94,154 @@ def endpoint(replies, *, unix_socket=None):
                 requests,
             )
         finally:
+            if release is not None:
+                release.set()
             server.shutdown()
             thread.join()
 
 
+def frame(payload, *, event_id=None):
+    if event_id is None:
+        event_id = json.loads(payload.splitlines()[-1])["value"]
+    return (
+        b"event: telemetry\n"
+        + b"".join(b"data: " + line + b"\n" for line in payload.splitlines())
+        + b"id: "
+        + event_id.encode()
+        + b"\n\n"
+    )
+
+
 class LogsTest(unittest.TestCase):
+    def test_stream_keeps_one_connection_and_reports_incarnation_end(self):
+        start = frame(batch("chat", [{"event": "stream_begin", "sequence": 0}], 1))
+        next_frame = frame(batch("chat", [{"event": "request_end", "sequence": 1}], 2))
+        end = b'event: stream_end\ndata: {"identity":"100:1","reason":"model_unregistered"}\n\n'
+        with endpoint([(200, start + next_frame + end)], streaming=True) as (
+            client,
+            requests,
+        ):
+            with client.stream("chat") as stream:
+                self.assertEqual(stream.read().records[1]["event"], "stream_begin")
+                self.assertEqual(stream.read().records[1]["event"], "request_end")
+                self.assertEqual(stream.read().records[0]["event"], "stream_end")
+                self.assertTrue(stream.ended)
+                self.assertIsNone(stream.read())
+            self.assertEqual(client.cursors, {"chat": "100:1:2"})
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0][0], "/logz/stream")
+
+    def test_stream_resumes_and_preserves_explicit_overwrite_gap(self):
+        gap = {"event": "gap", "from": 1, "to": 10}
+        payload = frame(
+            batch("chat", [gap, {"event": "sample", "sequence": 10}], 11, oldest=10)
+        )
+        with endpoint([(200, payload)], streaming=True) as (client, requests):
+            client.cursors["chat"] = "100:1:1"
+            with client.stream("chat") as stream:
+                self.assertEqual(stream.read().records[1], gap)
+            self.assertEqual(requests[0][1]["Last-Event-ID"], "100:1:1")
+            self.assertEqual(client.cursors["chat"], "100:1:11")
+
+    def test_stream_cancellation_wakes_blocked_read_without_advancing_cursor(self):
+        initial = frame(batch(None, [], 0))
+        partial = b"event: telemetry\ndata: {"
+        initial_chunk = f"{len(initial):x}\r\n".encode() + initial + b"\r\n"
+        for chunked, payload in (
+            (False, initial + partial),
+            (True, initial_chunk + b"1000\r\n" + partial),
+            (True, initial_chunk + b"1000"),
+        ):
+            release = threading.Event()
+            with (
+                self.subTest(chunked=chunked, tail=payload[-20:]),
+                endpoint(
+                    [(200, payload)], streaming=True, chunked=chunked, release=release
+                ) as (client, requests),
+            ):
+                client.timeout = 10.0
+                with (
+                    client.stream() as stream,
+                    ThreadPoolExecutor(max_workers=1) as reader,
+                ):
+                    try:
+                        self.assertFalse(stream.transport.getblocking())
+                        stream.read()
+                        entered = threading.Event()
+                        wait = select.select
+
+                        def wait_for_input(*args):
+                            entered.set()
+                            return wait(*args)
+
+                        # Observe the real readiness wait, not merely entry to
+                        # read(), which could race with cancellation beforehand.
+                        with mock.patch(
+                            "loom_serve_testing.logs.select.select",
+                            side_effect=wait_for_input,
+                        ):
+                            result = reader.submit(stream.read)
+                            entered.wait()
+                            stream.cancel()
+                            stream.cancel()
+                            self.assertIsNone(result.result())
+                        self.assertEqual(client.cursors, {None: "100:1:0"})
+                    finally:
+                        release.set()
+                self.assertEqual(len(requests), 1)
+
+    def test_stream_rejects_truncated_oversized_and_mismatched_frames(self):
+        good = batch("chat", [{"event": "stream_begin", "sequence": 0}], 1)
+        payloads = [
+            frame(good)[:-1],
+            b"data: " + b"x" * (1024 * 1024),
+            frame(good, event_id="100:1:2"),
+            b"event: wrong\nid: 100:1:0\n\n",
+            b'event: stream_end\ndata: {"identity":"100:2","reason":"model_unregistered"}\n\n',
+        ]
+        for payload in payloads:
+            with (
+                self.subTest(payload=payload[:80]),
+                endpoint([(200, payload)], streaming=True) as (client, _),
+            ):
+                client.cursors["chat"] = "100:1:0"
+                with client.stream("chat") as stream, self.assertRaises(ValueError):
+                    stream.read()
+                self.assertEqual(client.cursors["chat"], "100:1:0")
+
+    def test_stream_rejected_resume_does_not_retry_or_forget_history(self):
+        with endpoint([(409, b"new incarnation")], streaming=True) as (
+            client,
+            requests,
+        ):
+            client.cursors["chat"] = "100:1:7"
+            with self.assertRaisesRegex(RuntimeError, "HTTP 409"):
+                with client.stream("chat"):
+                    self.fail("rejected stream was opened")
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(client.cursors["chat"], "100:1:7")
+
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "requires Unix sockets")
+    def test_unix_stream_resumes_and_can_be_cancelled(self):
+        payload = frame(batch("chat", [{"event": "sample", "sequence": 1}], 2))
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "serve local%25#.sock")
+            with endpoint(
+                [(200, payload)],
+                unix_socket=path,
+                streaming=True,
+                release=threading.Event(),
+            ) as (client, requests):
+                client.cursors["chat"] = "100:1:1"
+                with client.stream("chat") as stream:
+                    self.assertEqual(stream.read().records[1]["sequence"], 1)
+                    stream.cancel()
+                    self.assertIsNone(stream.read())
+                self.assertEqual(client.cursors["chat"], "100:1:2")
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0][1]["Host"], "not-a-tcp-host.invalid:8099")
+                self.assertEqual(requests[0][1]["Last-Event-ID"], "100:1:1")
+
     @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "requires Unix sockets")
     def test_unix_path_is_literal_and_preserves_http_routing(self):
         replies = [

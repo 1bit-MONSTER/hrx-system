@@ -33,7 +33,7 @@ typedef struct loom_serve_stage_set_t {
 typedef void (*loom_serve_stage_set_completion_fn_t)(
     void* user_data, iree_status_t status, loom_serve_stage_set_t* stages);
 
-// Snapshots providers and compiles the existing declarations on shared workers,
+// Snapshots providers and concurrently compiles declarations on shared workers,
 // enforcing their workspace limits before publishing successful completion.
 // Reuses identical kernel requests within the new catalog. Success owes one
 // completion, possibly before return; rejection owes none. Device, preparation,
@@ -44,6 +44,19 @@ iree_status_t loom_serve_stage_set_compile_async(
     const loom_serve_sources_t* sources,
     loom_serve_stage_set_completion_fn_t completion, void* user_data,
     iree_allocator_t host_allocator);
+
+// Compiles all declarations concurrently against an already indexed catalog.
+// Retains jit through the final join, including after submission or stage
+// failure. Results remain in declaration order and include successfully built
+// stages on failure. The returned set copies the catalog's cumulative report.
+// The caller excludes other compilation/report producers on this catalog until
+// completion; preparation and user_data remain borrowed. Success owes exactly
+// one completion, possibly before return; rejection owes none.
+iree_status_t loom_serve_stage_set_compile_catalog_async(
+    loom_serve_jit_t* jit, const loom_serve_preparation_t* preparation,
+    loom_serve_stage_set_completion_fn_t completion, void* user_data,
+    iree_allocator_t host_allocator);
+
 void loom_serve_stage_set_free(loom_serve_stage_set_t* stages);
 
 #ifdef __cplusplus

@@ -30,11 +30,29 @@ iree_status_t loom_serve_residency_cache_allocate(
 // All registered residencies must have been destroyed. Removes pressure policy.
 void loom_serve_residency_cache_free(loom_serve_residency_cache_t* cache);
 
+// Collects completed parameter releases on the serialized owner without
+// starting new release work. Call on native-capacity wakes before advancing
+// services, even when no cold activation is waiting. Native failure propagates
+// to the owner for ordinary draining. With no releases this is constant-time.
+iree_status_t loom_serve_residency_cache_query_status(
+    loom_serve_residency_cache_t* cache);
+
 // Best-effort trim toward total pool commitment of target_bytes. Pinned
 // parameters and model-owned mutable state survive. The pool statistics report
-// the reached extent; only real platform failures return a failing status.
+// completed and releasing extents; only real platform failures return a failing
+// status. Native release does not block the owner or grant capacity early.
 iree_status_t loom_serve_residency_cache_trim(
     loom_serve_residency_cache_t* cache, uint64_t target_bytes);
+
+// Schedules release of active, unpinned parameters idle for at least timeout
+// nanoseconds. The caller supplies a positive timeout and its current time.
+// Reports whether an eligible entry still awaits expiry. Active invocations,
+// explicit pins, fixed backing, and model-owned history are untouched. Reads
+// and repeated maintenance do not refresh age. Accepted releases finish through
+// query_status and the shared capacity wake, without polling or blocking here.
+iree_status_t loom_serve_residency_cache_trim_idle(
+    loom_serve_residency_cache_t* cache, iree_time_t now,
+    iree_duration_t timeout, bool* out_pending);
 
 // Registers the weight plans consumed together by one model invocation. Copies
 // the pointer array, not the plans. Plans belong to this cache's physical pool,
@@ -138,6 +156,14 @@ void loom_serve_residency_cancel_admission(loom_serve_residency_t* residency);
 // New-work schedulers use try_admit; accepted consumers use acquire directly.
 iree_status_t loom_serve_residency_acquire(loom_serve_residency_t* residency);
 
+// Synchronous outer-thread invocation admission and readiness join. Waits for
+// already-accepted native capacity operations before retrying admission. Live
+// pins and model-owned history needing scheduler progress still deny capacity.
+// Success owns one pin; activation failure preserves it until teardown. Shared
+// task schedulers use try_admit/acquire and never call this function.
+iree_status_t loom_serve_residency_acquire_wait(
+    loom_serve_residency_t* residency);
+
 // Cold outer-thread activation join for a pinned group. Task services consume
 // the model timeline asynchronously. Failure preserves the pin until teardown.
 iree_status_t loom_serve_residency_await(loom_serve_residency_t* residency);
@@ -159,11 +185,16 @@ iree_status_t loom_serve_residency_finish(loom_serve_residency_t* residency,
                                           iree_status_t status);
 
 // Synchronous outer-thread warmup without retaining a pin across calls. The
-// next pressure event may evict it. Explicit deactivation rejects pinned or
-// fixed-backed residency.
+// next pressure event may evict it.
 iree_status_t loom_serve_residency_activate(loom_serve_residency_t* residency);
-iree_status_t loom_serve_residency_deactivate(
-    loom_serve_residency_t* residency);
+
+// Starts/advances asynchronous release after consumers retire. New requests
+// cannot reactivate this residency until native release completes. Rejects
+// pinned/fixed backing before submission; pinning cannot cancel accepted
+// release. The pool owner receives completion wakes; true joins all native
+// release work.
+iree_status_t loom_serve_residency_deactivate(loom_serve_residency_t* residency,
+                                              bool* out_complete);
 
 // Combined parameter accounting for the group's independently prepared plans.
 loom_serve_memory_statistics_t loom_serve_residency_statistics(

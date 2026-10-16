@@ -25,6 +25,7 @@
 #include "loom/serve/runtime/program/module.h"
 #include "loom/serve/runtime/program/preparation.h"
 #include "loom/serve/runtime/program/program.h"
+#include "loom/serve/runtime/program/stage_set.h"
 #include "loom/serve/service/text/source.h"
 #include "loom/serve/service/text/stages.h"
 #include "loom/serve/service/text/state.h"
@@ -366,6 +367,7 @@ static iree_status_t loom_serve_text_create_program(
 typedef enum text_load_phase_e {
   TEXT_LOAD_PREPARE,
   TEXT_LOAD_STAGES,
+  TEXT_LOAD_BIND,
   TEXT_LOAD_WEIGHTS,
   TEXT_LOAD_LINK,
   TEXT_LOAD_READY,
@@ -383,7 +385,7 @@ struct loom_serve_text_load_t {
   loom_serve_text_options_t options;
   // Serialized owner-only phase; callbacks publish results, never transition.
   text_load_phase_t phase;
-  // Next stage or parameter domain within the current load phase.
+  // Next parameter domain during checkpoint preparation.
   iree_host_size_t index;
   // Once cancelled, subsequent advance calls cannot restart preparation.
   bool cancelled;
@@ -442,15 +444,23 @@ static iree_status_t loom_serve_text_load_prepare(
       options, model->host_allocator, &model->source, &model->state.storage));
   const iree_host_size_t stage_count =
       loom_serve_preparation_stage_count(model->source.preparation);
+  for (iree_host_size_t i = 0; i < stage_count; ++i) {
+    if (loom_serve_preparation_stage(model->source.preparation, i)->kind !=
+        LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
+      return iree_make_status(
+          IREE_STATUS_UNIMPLEMENTED,
+          "text stages require command parameter reflection");
+    }
+  }
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
       model->host_allocator, stage_count, sizeof(*model->stages),
       (void**)&model->stages));
   model->stage_count = stage_count;
-  return loom_serve_jit_allocate(model->device, model->dispatch,
-                                 loom_serve_device_host(model->device_owner),
-                                 &options->sources, &options->kernel_sanitizer,
-                                 &model->source.compilation,
-                                 model->host_allocator, &model->jit);
+  return loom_serve_jit_create(model->device, model->dispatch,
+                               loom_serve_device_host(model->device_owner),
+                               &options->sources, &options->kernel_sanitizer,
+                               &model->source.compilation,
+                               model->host_allocator, &model->jit);
 }
 
 static void loom_serve_text_load_execute(loomc_task_t* task,
@@ -470,9 +480,13 @@ static const loomc_task_vtable_t text_load_vtable = {
 };
 
 static void loom_serve_text_load_compiled(void* user_data, iree_status_t status,
-                                          loom_serve_jit_stage_t* compiled) {
+                                          loom_serve_stage_set_t* compiled) {
   loom_serve_text_load_t* load = user_data;
-  load->model->stages[load->index - 1].compiled = compiled;
+  for (iree_host_size_t i = 0; i < compiled->count; ++i) {
+    load->model->stages[i].compiled = compiled->values[i];
+    compiled->values[i] = NULL;
+  }
+  loom_serve_stage_set_free(compiled);
   loom_serve_text_load_complete(load, status);
 }
 
@@ -647,25 +661,15 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
         submitted = iree_status_is_ok(status);
         break;
       case TEXT_LOAD_STAGES:
-        if (load->index < model->stage_count) {
-          const loom_serve_preparation_stage_t* declaration =
-              loom_serve_preparation_stage(model->source.preparation,
-                                           load->index++);
-          if (declaration->kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
-            status = iree_make_status(
-                IREE_STATUS_UNIMPLEMENTED,
-                "text stages require command parameter reflection");
-            break;
-          }
-          status = loom_serve_jit_compile_async(
-              model->jit, declaration->root, &declaration->config,
-              loom_serve_text_load_compiled, load);
-          submitted = iree_status_is_ok(status);
-        } else {
-          status = loom_serve_text_load_bind(model);
-          load->index = 0;
-          load->phase = TEXT_LOAD_WEIGHTS;
-        }
+        load->phase = TEXT_LOAD_BIND;
+        status = loom_serve_stage_set_compile_catalog_async(
+            model->jit, model->source.preparation,
+            loom_serve_text_load_compiled, load, load->host_allocator);
+        submitted = iree_status_is_ok(status);
+        break;
+      case TEXT_LOAD_BIND:
+        status = loom_serve_text_load_bind(model);
+        load->phase = TEXT_LOAD_WEIGHTS;
         break;
       case TEXT_LOAD_WEIGHTS:
         if (load->index < model->parameters.count) {
@@ -800,7 +804,7 @@ bool loom_serve_text_model_is_retired(loom_serve_text_model_t* model) {
   for (iree_host_size_t i = 0; i < model->parameters.count; ++i) {
     retired &= loom_serve_weights_is_retired(model->parameters.plans[i]);
   }
-  return retired && loom_serve_retirement_is_idle(&model->state.retirement);
+  return retired && loom_serve_text_state_is_retired(&model->state);
 }
 
 iree_status_t loom_serve_text_model_free_retired(
@@ -830,7 +834,7 @@ iree_status_t loom_serve_text_model_free_retired(
   iree_allocator_free(model->host_allocator, model->stage_bindings);
   iree_allocator_free(model->host_allocator, model->parameters.plans);
   iree_allocator_free(model->host_allocator, model->parameters.sources);
-  loom_serve_jit_free(model->jit);
+  loom_serve_jit_release(model->jit);
   for (iree_host_size_t i = 0; i < TEXT_HOST_BUFFER_COUNT; ++i) {
     iree_vm_buffer_release(model->host.buffers[i]);
   }
@@ -853,7 +857,7 @@ iree_status_t loom_serve_text_model_free(loom_serve_text_model_t* model) {
   for (iree_host_size_t i = 0; i < model->parameters.count; ++i) {
     loom_serve_weights_await_retirement(model->parameters.plans[i]);
   }
-  loom_serve_retirement_await(&model->state.retirement);
+  loom_serve_text_state_await_retirement(&model->state);
   return iree_status_join(status, loom_serve_text_model_free_retired(model));
 }
 
@@ -911,8 +915,9 @@ iree_status_t loom_serve_text_model_activate(loom_serve_text_model_t* model) {
   return loom_serve_residency_activate(model->residency);
 }
 
-iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model) {
-  return loom_serve_residency_deactivate(model->residency);
+iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model,
+                                               bool* out_complete) {
+  return loom_serve_residency_deactivate(model->residency, out_complete);
 }
 
 iree_tokenizer_t* loom_serve_text_model_tokenizer(
@@ -1014,8 +1019,13 @@ iree_status_t loom_serve_text_model_submit_trim(
 }
 
 iree_status_t loom_serve_text_model_complete_trim(
-    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result) {
-  return loom_serve_text_state_complete_trim(&model->state, result);
+    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result,
+    bool* out_complete, loom_serve_execution_frontier_t* out_frontier) {
+  *out_frontier = (loom_serve_execution_frontier_t){0};
+  IREE_RETURN_IF_ERROR(
+      loom_serve_text_state_complete_trim(&model->state, result, out_complete));
+  *out_frontier = loom_serve_execution_frontier(model->execution);
+  return iree_ok_status();
 }
 
 iree_status_t loom_serve_text_model_trim(
@@ -1024,11 +1034,15 @@ iree_status_t loom_serve_text_model_trim(
   loom_serve_execution_frontier_t frontier;
   iree_status_t status =
       loom_serve_text_model_submit_trim(model, out_result, &frontier);
-  status =
-      iree_status_join(status, loom_serve_execution_drain(model->execution));
-  if (iree_status_is_ok(status)) {
-    status = loom_serve_text_model_complete_trim(model, out_result);
-  }
+  bool complete = false;
+  do {
+    status =
+        iree_status_join(status, loom_serve_execution_drain(model->execution));
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_text_model_complete_trim(model, out_result, &complete,
+                                                   &frontier);
+    }
+  } while (iree_status_is_ok(status) && !complete);
   return status;
 }
 

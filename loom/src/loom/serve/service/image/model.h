@@ -158,10 +158,12 @@ iree_status_t loom_serve_image_model_free(loom_serve_image_model_t* model);
 // Reloads or releases every checkpoint domain while preserving compiled
 // commands. Deactivation requires unpinned elastic backing. Next generation
 // pins every domain together and activates on demand, reclaiming eligible idle
-// weights of other models if needed. Execution/I/O failure is terminal.
+// weights of other models if needed. Activation is an outer-thread join;
+// deactivation advances without waiting until out_complete joins native
+// release. Execution/I/O failure is terminal.
 iree_status_t loom_serve_image_model_activate(loom_serve_image_model_t* model);
-iree_status_t loom_serve_image_model_deactivate(
-    loom_serve_image_model_t* model);
+iree_status_t loom_serve_image_model_deactivate(loom_serve_image_model_t* model,
+                                                bool* out_complete);
 // Borrowed group admission/retention handle; explicit pins may span requests.
 loom_serve_residency_t* loom_serve_image_model_residency(
     const loom_serve_image_model_t* model);

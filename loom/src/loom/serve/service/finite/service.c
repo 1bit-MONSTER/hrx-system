@@ -749,7 +749,7 @@ static iree_status_t loom_serve_finite_advance(
       status,
       loom_serve_timer_advance(&service->timer,
                                service->stopping || !iree_status_is_ok(status),
-                               &timer_progress, &tick));
+                               true, &timer_progress, &tick));
   *out_progress |= timer_progress;
   if (tick) {
     loom_serve_finite_heartbeat(service);

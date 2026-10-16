@@ -21,7 +21,8 @@ extern "C" {
 
 // Model-resident source catalog, compiler and live device profile, with a
 // shared host compiler sink and catalog-local worker scratch. Compilation calls
-// on a catalog are serialized by the caller; native requests run concurrently.
+// on a catalog may overlap; parents and native requests use distinct worker
+// scratch and join shared pending native results without waiting on workers.
 // Execution of already prepared commands does not access this object.
 // Native requests with identical source bytes and ordered source roots
 // share loaded executables inside this catalog's fixed target/pipeline domain.
@@ -38,20 +39,28 @@ typedef struct loom_serve_jit_stage_t loom_serve_jit_stage_t;
 // declarations and launch configurations are specialized to that profile at
 // each command's kernel roots before planning and native entry compilation.
 // report receives copied evidence even on failure and outlives the catalog.
-// Only the serialized compilation owner accesses it between completions.
-iree_status_t loom_serve_jit_allocate(
-    iree_hal_device_t* device, iree_hal_queue_t* dispatch,
-    loom_serve_host_t* host, const loom_serve_sources_t* sources,
-    const loomc_sanitizer_options_t* sanitizer,
-    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
-    loom_serve_jit_t** out_jit);
-// Releases a quiescent catalog without waiting for other catalogs or closing
-// the host compiler queue. No accepted compilation may remain before its
-// completion callback. Destruction from that callback is permitted.
-void loom_serve_jit_free(loom_serve_jit_t* jit);
+// Reports publish in submission order. The owner reads the accumulator only
+// after all accepted compilations complete; callbacks are serialized.
+iree_status_t loom_serve_jit_create(iree_hal_device_t* device,
+                                    iree_hal_queue_t* dispatch,
+                                    loom_serve_host_t* host,
+                                    const loom_serve_sources_t* sources,
+                                    const loomc_sanitizer_options_t* sanitizer,
+                                    loom_serve_compilation_report_t* report,
+                                    iree_allocator_t host_allocator,
+                                    loom_serve_jit_t** out_jit);
 
-// Borrowed evidence accumulator for serialized VM/parameter preparation using
-// this catalog. Native tasks merge into it before publishing completion.
+// Retains catalog ownership without retaining its borrowed host or report.
+void loom_serve_jit_retain(loom_serve_jit_t* jit);
+
+// Releases caller ownership without waiting or closing the host compiler queue.
+// Accepted jobs retain the catalog through their callbacks; release does not
+// cancel them. The host and caller-owned root/config storage still outlive all
+// accepted completions. Release from a completion callback is permitted.
+void loom_serve_jit_release(loom_serve_jit_t* jit);
+
+// Borrowed evidence accumulator for VM/parameter preparation while no stage
+// compilations are outstanding. Compiler tasks merge before their completions.
 loom_serve_compilation_report_t* loom_serve_jit_report(loom_serve_jit_t* jit);
 
 // Borrows the catalog's shared native and VM source grammar through jit
@@ -74,9 +83,11 @@ typedef void (*loom_serve_jit_completion_fn_t)(void* user_data,
 // Completion joins all accepted native work even when parent construction
 // fails, retaining successfully loaded natives for subsequent compilations.
 // Success invokes completion exactly once, possibly before return. Rejection
-// invokes no callback. The caller keeps jit, root, config and its referenced
-// storage alive through completion, and submits at most one compile per jit
-// at a time. Different catalogs share workers and progress independently.
+// invokes no callback. The job retains jit; the caller keeps root, config and
+// its referenced storage alive through completion. Compilations may overlap on
+// the same catalog, including exact-input requests whose native work is still
+// pending. Callbacks publish in submission order, after their borrowed compiler
+// inputs retire. Different catalogs share workers and progress independently.
 iree_status_t loom_serve_jit_compile_async(
     loom_serve_jit_t* jit, iree_string_view_t root,
     const loomc_config_options_t* config,

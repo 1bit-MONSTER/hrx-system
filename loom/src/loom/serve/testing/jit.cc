@@ -40,7 +40,7 @@ void Compilation::Complete(void* user_data, iree_status_t status,
                            loom_serve_jit_stage_t* stage) {
   auto* self = static_cast<Compilation*>(user_data);
   if (self->retire_catalog) {
-    loom_serve_jit_free(self->jit);
+    loom_serve_jit_release(self->jit);
     self->jit = nullptr;
   }
   std::lock_guard<std::mutex> lock(self->mutex);
@@ -101,7 +101,7 @@ void JitTest::SetUp() {
       .count = IREE_ARRAYSIZE(providers),
       .values = providers,
   };
-  IREE_ASSERT_OK(loom_serve_jit_allocate(
+  IREE_ASSERT_OK(loom_serve_jit_create(
       device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
       nullptr, &compilation_, host_allocator_, &jit_));
 }
@@ -118,7 +118,7 @@ void JitTest::TearDown() {
     loom_serve_dispatch_release(dispatch);
   }
   iree_hal_buffer_release(buffer_);
-  loom_serve_jit_free(jit_);
+  loom_serve_jit_release(jit_);
   loom_serve_execution_release(execution_);
   IREE_EXPECT_OK(loom_serve_device_group_free(group_));
 }

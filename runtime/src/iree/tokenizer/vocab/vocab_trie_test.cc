@@ -6,10 +6,55 @@
 
 #include "iree/tokenizer/vocab/vocab_trie.h"
 
+#include <cstring>
+#include <limits>
+
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
 namespace {
+
+// Observes the actual allocator boundary, including every allocation failure.
+// Uninitialized backing is poisoned so construction cannot rely on zeroed
+// child lists. The allocator must outlive the returned trie.
+struct BuildAllocator {
+  // Number of allocation/reallocation commands attempted.
+  size_t allocation_count = 0;
+  // Number of independently owned allocations still live.
+  size_t live_count = 0;
+  // Allocation command to fail, or the maximum value to allow all allocations.
+  size_t fail_at = std::numeric_limits<size_t>::max();
+
+  iree_allocator_t allocator() { return {this, Control}; }
+
+  static iree_status_t Control(void* self, iree_allocator_command_t command,
+                               const void* params, void** inout_pointer) {
+    auto* state = static_cast<BuildAllocator*>(self);
+    const bool is_free = command == IREE_ALLOCATOR_COMMAND_FREE;
+    if (!is_free && state->allocation_count++ == state->fail_at) {
+      return iree_status_from_code(IREE_STATUS_RESOURCE_EXHAUSTED);
+    }
+    const bool had_allocation =
+        (is_free || command == IREE_ALLOCATOR_COMMAND_REALLOC) &&
+        *inout_pointer != nullptr;
+    const iree_allocator_t backing_allocator = iree_allocator_system();
+    iree_status_t status = backing_allocator.ctl(
+        backing_allocator.self, command, params, inout_pointer);
+    if (iree_status_is_ok(status)) {
+      if (is_free) {
+        state->live_count -= had_allocation;
+      } else {
+        state->live_count += !had_allocation;
+        if (command == IREE_ALLOCATOR_COMMAND_MALLOC) {
+          const auto* allocation =
+              static_cast<const iree_allocator_alloc_params_t*>(params);
+          std::memset(*inout_pointer, 0xCD, allocation->byte_length);
+        }
+      }
+    }
+    return status;
+  }
+};
 
 // Helper to build a string table from a list of strings.
 // Returns the string table and populates tokens with offsets/lengths.
@@ -273,6 +318,95 @@ TEST(VocabTrieTest, BinaryData) {
   EXPECT_EQ(iree_tokenizer_trie_cursor_depth(&cursor), 3u);
 
   iree_tokenizer_vocab_trie_free(trie);
+}
+
+TEST(VocabTrieTest, FullByteAlphabet) {
+  // Reverse insertion forces sorted child movement through every growth step,
+  // including the 128-to-256 transition. The zero byte also branches at
+  // depth 1.
+  std::vector<std::string> strings;
+  for (int byte = 255; byte >= 0; --byte) {
+    strings.emplace_back(1, static_cast<char>(byte));
+    strings.push_back(std::string(1, '\0') + static_cast<char>(byte));
+  }
+  BuildAllocator allocator;
+  iree_tokenizer_vocab_trie_t* trie = nullptr;
+  {
+    std::vector<iree_tokenizer_token_t> tokens;
+    auto table = BuildStringTable(strings, &tokens);
+    IREE_ASSERT_OK(iree_tokenizer_vocab_trie_build(
+        tokens.data(), tokens.size(), {table.data(), table.size()},
+        allocator.allocator(), &trie));
+  }
+  // Only the immutable slab escapes, and it needs neither the construction
+  // arena nor the source vocabulary to remain alive.
+  EXPECT_EQ(allocator.live_count, 1u);
+  for (size_t i = 0; i < strings.size(); ++i) {
+    auto matches = TraverseTrie(trie, strings[i]);
+    ASSERT_FALSE(matches.empty());
+    EXPECT_EQ(matches.back().first, static_cast<int32_t>(i));
+    EXPECT_EQ(matches.back().second, strings[i].size());
+  }
+  iree_tokenizer_vocab_trie_free(trie);
+  EXPECT_EQ(allocator.live_count, 0u);
+}
+
+TEST(VocabTrieTest, ConstructionStorageAndAllocationFailures) {
+  // Independent long suffixes cross arena blocks and repeatedly grow the node
+  // array, while the root exercises every child-array capacity.
+  std::vector<std::string> strings;
+  for (int byte = 0; byte < 256; ++byte) {
+    strings.push_back(std::string(1, static_cast<char>(byte)) +
+                      std::string(64, 'x'));
+  }
+  std::vector<iree_tokenizer_token_t> tokens;
+  auto table = BuildStringTable(strings, &tokens);
+  BuildAllocator allocator;
+  iree_tokenizer_vocab_trie_t* trie = nullptr;
+  IREE_ASSERT_OK(iree_tokenizer_vocab_trie_build(tokens.data(), tokens.size(),
+                                                 {table.data(), table.size()},
+                                                 allocator.allocator(), &trie));
+  EXPECT_EQ(allocator.live_count, 1u);
+  // Heap calls scale with backing storage, not the many thousands of nodes.
+  EXPECT_LT(allocator.allocation_count, 64u);
+  for (size_t i = 0; i < strings.size(); ++i) {
+    auto matches = TraverseTrie(trie, strings[i]);
+    ASSERT_EQ(matches.size(), 1u);
+    EXPECT_EQ(matches[0].first, static_cast<int32_t>(i));
+  }
+  iree_tokenizer_vocab_trie_free(trie);
+  EXPECT_EQ(allocator.live_count, 0u);
+
+  // Every possible backing allocation failure must release all prior storage,
+  // including arena blocks and partially grown construction arrays.
+  for (size_t fail_at = 0; fail_at < allocator.allocation_count; ++fail_at) {
+    SCOPED_TRACE(fail_at);
+    BuildAllocator failing_allocator;
+    failing_allocator.fail_at = fail_at;
+    trie = nullptr;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        iree_tokenizer_vocab_trie_build(tokens.data(), tokens.size(),
+                                        {table.data(), table.size()},
+                                        failing_allocator.allocator(), &trie));
+    EXPECT_EQ(trie, nullptr);
+    EXPECT_EQ(failing_allocator.live_count, 0u);
+  }
+}
+
+TEST(VocabTrieTest, InvalidTokenAfterPartialConstruction) {
+  std::vector<iree_tokenizer_token_t> tokens;
+  auto table = BuildStringTable({std::string(4096, 'x'), "bad"}, &tokens);
+  tokens.back().string_offset = static_cast<uint32_t>(table.size());
+  BuildAllocator allocator;
+  iree_tokenizer_vocab_trie_t* trie = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_tokenizer_vocab_trie_build(tokens.data(), tokens.size(),
+                                      {table.data(), table.size()},
+                                      allocator.allocator(), &trie));
+  EXPECT_EQ(trie, nullptr);
+  EXPECT_EQ(allocator.live_count, 0u);
 }
 
 TEST(VocabTrieTest, ManyTokens) {

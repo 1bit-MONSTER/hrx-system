@@ -27,6 +27,7 @@
 #include "loom/serve/service/speech/service.h"
 #include "loom/serve/telemetry/latency.h"
 #include "loom/serve/testing/http_harness.h"
+#include "loom/serve/testing/maintenance_gate.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
 #include "loom/serve/testing/service_application.h"
@@ -171,7 +172,12 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
           allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 8, .holding_capacity = 8}, allocator_);
+          {
+              .request_quota = 8,
+              .holding_capacity = 8,
+              .resources = {.device_group = group_},
+          },
+          allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
@@ -308,7 +314,16 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
   }
 
   iree_status_t Retire(void* invocation) {
-    return generator_.release(generator_.self, invocation);
+    bool complete = false;
+    while (!complete) {
+      loom_serve_execution_frontier_t frontier;
+      IREE_RETURN_IF_ERROR(generator_.release(generator_.self, invocation,
+                                              &complete, &frontier));
+      if (!complete) {
+        IREE_RETURN_IF_ERROR(Wait(frontier));
+      }
+    }
+    return iree_ok_status();
   }
 
   iree_status_t Submit(const std::vector<void*>& invocations,
@@ -399,6 +414,113 @@ TEST_P(SourceSpeechServiceTest, SourceStagesPublishVariableAndEmptyBlocks) {
     }
     IREE_ASSERT_OK(Retire(invocation));
   }
+}
+
+TEST_P(SourceSpeechServiceTest,
+       ColdStateTransitionsPreserveWarmWaveformProgress) {
+  void* warm = nullptr;
+  IREE_ASSERT_OK(Prepare("positive", 3, &warm));
+  IREE_ASSERT_OK(Admit(warm));
+  std::vector<float> warm_samples;
+  std::vector<size_t> warm_blocks;
+  IREE_ASSERT_OK(Generate(warm, 3, &warm_samples, &warm_blocks));
+
+  auto* device = loom_serve_device_group_at(group_, 0);
+  const iree_string_view_t providers[] = {IREE_SVL("generate.loom")};
+  const loom_serve_speech_model_options_t options = {
+      .sources =
+          {
+              .base_directory = iree_make_cstring_view(directory_.c_str()),
+              .prepare = IREE_SV("prepare.loom"),
+              .control = IREE_SV("control.loom"),
+              .count = IREE_ARRAYSIZE(providers),
+              .values = providers,
+          },
+  };
+  loom_serve_speech_model_t* model = nullptr;
+  IREE_ASSERT_OK(
+      loom_serve_speech_model_allocate(device, &options, allocator_, &model));
+  const auto release_model = [](loom_serve_speech_model_t* value) {
+    IREE_EXPECT_OK(loom_serve_speech_model_free(value));
+  };
+  const std::unique_ptr<loom_serve_speech_model_t, decltype(release_model)>
+      owner(model, release_model);
+  const auto cold = loom_serve_speech_model_generator(model);
+  loom_serve_speech_request_t request;
+  IREE_ASSERT_OK(loom_serve_speech_request_initialize(
+      IREE_SV(R"({"model":"speech","input":"hi","voice":"negative",)"
+              R"("seed":5,"response_format":"pcm"})"),
+      IREE_SV("speech"), allocator_, &request));
+  void* invocation = nullptr;
+  iree_status_t prepared = cold.prepare(cold.self, 0, &request, &invocation);
+  loom_serve_speech_request_deinitialize(&request);
+  IREE_ASSERT_OK(prepared);
+  const auto hold_native = [&]() {
+    return FLAG_test_elastic
+               ? std::make_unique<loom_serve::testing::MaintenanceGate>(
+                     loom_serve_device_storage_pool(device)->maintenance)
+               : nullptr;
+  };
+  loom_serve_execution_frontier_t frontier;
+  {
+    const auto gate = hold_native();
+    loom_serve_residency_admission_t admission;
+    IREE_ASSERT_OK(
+        cold.try_admit(cold.self, invocation, &admission, &frontier));
+    ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+    if (FLAG_test_elastic) {
+      EXPECT_EQ(
+          loom_serve_device_memory_statistics(device).retained.pending_bytes,
+          3 * kSlabSize);
+    }
+    IREE_ASSERT_OK(Generate(warm, 6, &warm_samples, &warm_blocks));
+    ASSERT_EQ(warm_samples.size(), 6u);
+  }
+  IREE_ASSERT_OK(Wait(frontier));
+  ASSERT_TRUE(cold.complete_admit(cold.self, invocation));
+  std::vector<float> cold_samples;
+  bool complete = false;
+  while (!complete) {
+    loom_serve_speech_work_t work;
+    IREE_ASSERT_OK(cold.prepare_work(cold.self, invocation, &work));
+    IREE_ASSERT_OK(cold.prepare_batch(cold.self, 1, &invocation));
+    IREE_ASSERT_OK(cold.submit(cold.self, &frontier));
+    IREE_ASSERT_OK(Wait(frontier));
+    loom_serve_speech_block_t block;
+    IREE_ASSERT_OK(cold.collect(cold.self, 0, &block));
+    EXPECT_EQ(block.position, cold_samples.size());
+    for (size_t i = 0; i < block.frame_count; ++i) {
+      cold_samples.push_back(
+          iree_unaligned_load_le_f32(block.samples.data + i * sizeof(float)));
+    }
+    complete = block.complete;
+    cold.release_batch(cold.self);
+  }
+  ASSERT_EQ(cold_samples.size(), 17u);
+  for (size_t i = 0; i < cold_samples.size(); ++i) {
+    EXPECT_EQ(cold_samples[i], -static_cast<float>((i + 5) % 8) * 0.125f);
+  }
+  {
+    const auto gate = hold_native();
+    IREE_ASSERT_OK(cold.release(cold.self, invocation, &complete, &frontier));
+    EXPECT_EQ(complete, !FLAG_test_elastic);
+    if (FLAG_test_elastic) {
+      EXPECT_EQ(
+          loom_serve_device_memory_statistics(device).retained.releasing_bytes,
+          2 * kSlabSize);
+    }
+    IREE_ASSERT_OK(Generate(warm, SIZE_MAX, &warm_samples, &warm_blocks));
+  }
+  if (!complete) {
+    IREE_ASSERT_OK(Wait(frontier));
+    IREE_ASSERT_OK(cold.release(cold.self, invocation, &complete, &frontier));
+    ASSERT_TRUE(complete);
+  }
+  ASSERT_EQ(warm_samples.size(), 17u);
+  for (size_t i = 0; i < warm_samples.size(); ++i) {
+    EXPECT_EQ(warm_samples[i], static_cast<float>((i + 3) % 8) * 0.125f);
+  }
+  IREE_ASSERT_OK(Retire(warm));
 }
 
 TEST_P(SourceSpeechServiceTest, RejectionAndCancellationPreserveReusableModel) {
@@ -947,12 +1069,15 @@ class SpeechReadinessTest : public ::testing::Test {
               test->batch_.clear();
             },
         .release =
-            [](void* self, void* invocation) {
+            [](void* self, void* invocation, bool* out_complete,
+               loom_serve_execution_frontier_t* out_frontier) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
               test->invocations_[static_cast<Invocation*>(invocation)->row]
                   .reset();
               ++test->released_;
               test->http_.Notify();
+              *out_complete = true;
+              *out_frontier = {};
               return iree_ok_status();
             },
     };
@@ -1049,7 +1174,12 @@ class SpeechReadinessTest : public ::testing::Test {
                                                         allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 4, .holding_capacity = 4}, allocator_);
+          {
+              .request_quota = 4,
+              .holding_capacity = 4,
+              .resources = {.device_group = group_},
+          },
+          allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }

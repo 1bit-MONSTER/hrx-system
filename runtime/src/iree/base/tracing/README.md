@@ -131,3 +131,16 @@ build_tools/bin/iree-bazel-test --config=asan \
   --//runtime/config/base/tracing:provider=tracy \
   //runtime/src/iree/base/tracing:tracy_test
 ```
+
+### Fine-grained allocator tracing
+
+Arena tracing shows pool lifecycle, new backing blocks, and oversized allocations
+by default. Individual array allocations, free-list reuse, resets, and checkpoint
+restores are much smaller than the work they serve; recording millions of these
+zones can dominate capture traffic and obscure the compiler's actual work.
+
+For arena-specific investigations, compile `arena.c` with
+`IREE_ARENA_TRACE_ENABLE_OPERATIONS=1`. With Bazel, add
+`--per_file_copt=runtime/src/iree/base/internal/arena.c@-DIREE_ARENA_TRACE_ENABLE_OPERATIONS=1`
+to the tracing build. This enables the detailed zones without changing allocation
+behavior or the independent backing-allocation memory events.

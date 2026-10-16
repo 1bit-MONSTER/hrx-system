@@ -323,6 +323,8 @@ iree_status_t iree_tokenizer_decode_table_initialize(
     }
   }
 
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)vocab_capacity);
   void* temp_storage = NULL;
   void* slab = NULL;
   iree_status_t status =
@@ -538,5 +540,6 @@ iree_status_t iree_tokenizer_decode_table_initialize(
     iree_allocator_free(allocator, slab);
   }
 
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }

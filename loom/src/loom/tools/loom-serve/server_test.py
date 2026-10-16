@@ -23,6 +23,18 @@ FORMAT = Path(sys.argv.pop(1)).resolve()
 
 
 class ServerTest(unittest.TestCase):
+    def test_idle_durations_are_nonnegative(self):
+        for flag in ("workspace_idle_ms", "parameter_idle_ms"):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [str(SERVER), "--device=task", f"--{flag}=-1"],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("heartbeat/idle intervals", result.stderr)
+                self.assertNotIn('"event":"ready"', result.stderr)
+
     def test_device_is_required_before_listening(self):
         for arguments in ([], ["--device="], ["--device=task", "--device="]):
             with self.subTest(arguments=arguments):
@@ -149,6 +161,7 @@ class ServerTest(unittest.TestCase):
                     "--pool_backing=fixed",
                     f"--workers={workers}",
                     "--listen=127.0.0.1:0",
+                    "--workspace_idle_ms=1",
                 ]
                 if workers == 4:
                     (directory / "server flags.txt").write_text(
@@ -167,6 +180,10 @@ class ServerTest(unittest.TestCase):
                     )
                     self.assertEqual(
                         control(address, "GET", "/v1/models", 200)["data"], []
+                    )
+                    self.assertEqual(
+                        control(address, "GET", "/v1/status", 200)["server"]["idle"],
+                        {"workspace_ms": 1, "parameter_ms": 0},
                     )
                     registration = self.post(
                         address,

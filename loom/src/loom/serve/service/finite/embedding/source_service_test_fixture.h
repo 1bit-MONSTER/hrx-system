@@ -48,6 +48,9 @@ struct ModelLifecycle {
 
   // Borrowed shared executor for both owner turns and private preparation.
   iree_task_executor_t* executor = nullptr;
+  // Borrowed capacity domain whose wakes keep this owner runnable under
+  // pressure.
+  loom_serve_memory_pool_t* pool = nullptr;
   // Optional live service advanced by this same serialized pool owner.
   loom_serve_http_service_t* service = nullptr;
   // Owned in-progress load, consumed at its terminal owner turn.

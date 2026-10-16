@@ -226,7 +226,7 @@ static iree_status_t loom_serve_image_model_destroy_resources(
     iree_allocator_free(model->host_allocator, model->weights.values);
     iree_allocator_free(model->host_allocator, model->weights.plans);
     iree_allocator_free(model->host_allocator, (void*)model->name.data);
-    loom_serve_jit_free(model->jit);
+    loom_serve_jit_release(model->jit);
     iree_tokenizer_free(model->tokenizer);
     iree_allocator_free(model->host_allocator, model->output.data);
     iree_allocator_free(model->host_allocator, model);
@@ -834,6 +834,7 @@ static iree_status_t loom_serve_image_variant_select(void* self, void* value) {
 typedef enum image_load_phase_e {
   IMAGE_LOAD_PREPARE,
   IMAGE_LOAD_STAGES,
+  IMAGE_LOAD_BIND,
   IMAGE_LOAD_WEIGHTS,
   IMAGE_LOAD_LINK,
   IMAGE_LOAD_COMPLETE,
@@ -850,7 +851,7 @@ struct loom_serve_image_load_t {
   loom_serve_image_model_options_t options;
   // Owner-only next phase; callbacks never make shared-state transitions.
   image_load_phase_t phase;
-  // Next stage or weight domain within the current phase.
+  // Next parameter domain during checkpoint preparation.
   uint32_t index;
   // Recording policy shared by consumer and weight preparation commands.
   iree_hal_command_buffer_mode_t command_mode;
@@ -890,6 +891,14 @@ static iree_status_t loom_serve_image_load_prepare(
   loom_serve_image_model_t* model = load->model;
   const iree_allocator_t host_allocator = model->host_allocator;
   IREE_RETURN_IF_ERROR(loom_serve_image_prepare(model, &load->options));
+  for (iree_host_size_t i = 0; i < model->stages.count; ++i) {
+    if (loom_serve_preparation_stage(model->preparation, i)->kind !=
+        LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
+      return iree_make_status(
+          IREE_STATUS_UNIMPLEMENTED,
+          "image stages require command parameter reflection");
+    }
+  }
   model->output.data_length =
       (iree_host_size_t)load->options.height * load->options.width * 12;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
@@ -907,7 +916,7 @@ static iree_status_t loom_serve_image_load_prepare(
       load->options.sources.control, IREE_ARRAYSIZE(roots), roots,
       &model->compilation, host_allocator, &load->module);
   IREE_RETURN_IF_ERROR(status);
-  return loom_serve_jit_allocate(
+  return loom_serve_jit_create(
       loom_serve_device_handle(model->owner),
       loom_serve_device_dispatch_queue(model->owner),
       loom_serve_device_host(model->owner), &load->options.sources, NULL,
@@ -932,9 +941,13 @@ static const loomc_task_vtable_t image_load_vtable = {
 
 static void loom_serve_image_load_compiled(void* user_data,
                                            iree_status_t status,
-                                           loom_serve_jit_stage_t* compiled) {
+                                           loom_serve_stage_set_t* compiled) {
   loom_serve_image_load_t* load = user_data;
-  load->model->stages.values[load->index - 1].compiled = compiled;
+  for (iree_host_size_t i = 0; i < compiled->count; ++i) {
+    load->model->stages.values[i].compiled = compiled->values[i];
+    compiled->values[i] = NULL;
+  }
+  loom_serve_stage_set_free(compiled);
   loom_serve_image_load_complete(load, status);
 }
 
@@ -1013,27 +1026,18 @@ iree_status_t loom_serve_image_load_advance(loom_serve_image_load_t* load,
         submitted = iree_status_is_ok(status);
         break;
       case IMAGE_LOAD_STAGES:
-        if (load->index < model->stages.count) {
-          const loom_serve_preparation_stage_t* declaration =
-              loom_serve_preparation_stage(model->preparation, load->index++);
-          if (declaration->kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
-            status = iree_make_status(
-                IREE_STATUS_UNIMPLEMENTED,
-                "image stages require command parameter reflection");
-            break;
-          }
-          iree_slim_mutex_lock(&load->event.mutex);
-          load->event.pending = true;
-          iree_slim_mutex_unlock(&load->event.mutex);
-          status = loom_serve_jit_compile_async(
-              model->jit, declaration->root, &declaration->config,
-              loom_serve_image_load_compiled, load);
-          submitted = iree_status_is_ok(status);
-        } else {
-          status = loom_serve_image_model_bind(model);
-          load->index = 0;
-          load->phase = IMAGE_LOAD_WEIGHTS;
-        }
+        load->phase = IMAGE_LOAD_BIND;
+        iree_slim_mutex_lock(&load->event.mutex);
+        load->event.pending = true;
+        iree_slim_mutex_unlock(&load->event.mutex);
+        status = loom_serve_stage_set_compile_catalog_async(
+            model->jit, model->preparation, loom_serve_image_load_compiled,
+            load, load->host_allocator);
+        submitted = iree_status_is_ok(status);
+        break;
+      case IMAGE_LOAD_BIND:
+        status = loom_serve_image_model_bind(model);
+        load->phase = IMAGE_LOAD_WEIGHTS;
         break;
       case IMAGE_LOAD_WEIGHTS:
         if (load->index < model->weights.count) {
@@ -1228,9 +1232,9 @@ iree_status_t loom_serve_image_model_activate(loom_serve_image_model_t* model) {
   return loom_serve_residency_activate(model->residency);
 }
 
-iree_status_t loom_serve_image_model_deactivate(
-    loom_serve_image_model_t* model) {
-  return loom_serve_residency_deactivate(model->residency);
+iree_status_t loom_serve_image_model_deactivate(loom_serve_image_model_t* model,
+                                                bool* out_complete) {
+  return loom_serve_residency_deactivate(model->residency, out_complete);
 }
 
 loom_serve_residency_t* loom_serve_image_model_residency(
@@ -1342,7 +1346,7 @@ iree_status_t loom_serve_image_model_generate(
   *out_rgb = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(loom_serve_image_model_prepare_request(
       model, prompt, seed, strength, out_prepared));
-  iree_status_t status = loom_serve_residency_acquire(model->residency);
+  iree_status_t status = loom_serve_residency_acquire_wait(model->residency);
   if (!iree_status_is_ok(status)) {
     loom_serve_image_model_discard_prepared_request(model);
     return status;

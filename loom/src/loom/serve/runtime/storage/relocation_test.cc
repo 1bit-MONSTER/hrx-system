@@ -13,7 +13,9 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/execution/retirement.h"
+#include "loom/serve/runtime/storage/memory.h"
 #include "loom/serve/testing/device.h"
+#include "loom/serve/testing/maintenance_gate.h"
 
 namespace {
 
@@ -117,10 +119,36 @@ TEST_F(RelocationTest, RepeatedPlanesCrossBatchAndAddressBoundaries) {
         block < kLiveBlocks ? UINT32_MAX : block - kLiveBlocks;
   }
   uint64_t copied_bytes = 0;
-  IREE_ASSERT_OK(loom_serve_block_region_relocate(
-      execution, buffer, view, &region, kBlockCount, destinations.data(),
-      &copied_bytes));
+  std::array<loom_serve_memory_range_t, 3> ranges;
+  for (uint32_t plane = 0; plane < region.count; ++plane) {
+    ranges[plane] = {buffer, region.origin + plane * region.stride,
+                     kLiveBlocks * region.block_bytes};
+  }
+  iree_hal_semaphore_t* ready = nullptr;
+  IREE_ASSERT_OK(iree_hal_semaphore_create(
+      loom_serve_device_handle(device), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+      IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &ready));
+  loom_serve_memory_operation_t* commitment = nullptr;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device)->maintenance);
+    bool admitted = false;
+    IREE_ASSERT_OK(loom_serve_memory_pool_commit_async(
+        pool, ranges.size(), ranges.data(), ready, 1, &admitted, &commitment));
+    ASSERT_TRUE(admitted);
+    ASSERT_NE(commitment, nullptr);
+    uint64_t value = 1;
+    IREE_ASSERT_OK(
+        loom_serve_execution_barrier(execution, {1, &ready, &value}));
+    IREE_ASSERT_OK(
+        loom_serve_block_region_relocate(execution, view, &region, kBlockCount,
+                                         destinations.data(), &copied_bytes));
+    EXPECT_FALSE(loom_serve_memory_operation_is_complete(commitment));
+  }
   IREE_ASSERT_OK(loom_serve_execution_drain(execution));
+  EXPECT_TRUE(loom_serve_memory_operation_is_complete(commitment));
+  loom_serve_memory_operation_free(commitment);
+  iree_hal_semaphore_release(ready);
   EXPECT_EQ(copied_bytes, region.count * kLiveBlocks * region.block_bytes);
   EXPECT_EQ(loom_serve_virtual_buffer_handle(buffer), handle);
   loom_serve_virtual_buffer_begin_trim(buffer);

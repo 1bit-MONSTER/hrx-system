@@ -34,6 +34,13 @@ enum loom_serve_text_state_flag_bits_e {
 };
 typedef uint32_t loom_serve_text_state_flags_t;
 
+// Next owner action after the current maintenance frontier succeeds.
+typedef enum loom_serve_text_trim_phase_e {
+  LOOM_SERVE_TEXT_TRIM_COMPLETE,
+  LOOM_SERVE_TEXT_TRIM_RELOCATE,
+  LOOM_SERVE_TEXT_TRIM_RELEASE,
+} loom_serve_text_trim_phase_t;
+
 typedef struct loom_serve_text_state_t loom_serve_text_state_t;
 
 // Retained device state at a consumed-token frontier. Host predictions and
@@ -141,6 +148,22 @@ struct loom_serve_text_state_t {
     loom_serve_memory_pool_t* pool;
     // Mutable virtual state only, excluding weights and execution workspace.
     loom_serve_memory_statistics_t statistics;
+    // Native backing changes exclude state mutation through their readiness.
+    struct {
+      // Owned native borrower, joined separately from failed queue readiness.
+      loom_serve_memory_operation_t* operation;
+      // Owned timeline imported before dependent transfers or maintenance.
+      iree_hal_semaphore_t* semaphore;
+      // Last admitted native readiness value.
+      uint64_t value;
+    } backing;
+    // Compaction spans native releases and device copies on one model owner.
+    struct {
+      // Action admitted after successful readiness of the preceding phase.
+      loom_serve_text_trim_phase_t phase;
+      // State-local release counter before this maintenance cut.
+      uint64_t released_before;
+    } trim;
     // Optional reservations in source allocation order.
     loom_serve_virtual_buffer_t*
         buffers[LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT];
@@ -197,7 +220,14 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
                                   void (*wake)(void* user_data),
                                   void* user_data);
 
-// Final destruction after the state's retirement scope is idle. Never waits
+// Joins native backing borrowers as well as all exported device views.
+// Failed queue readiness alone does not make state safe to destroy.
+bool loom_serve_text_state_is_retired(loom_serve_text_state_t* state);
+
+// Outer-thread ownership join after retire; never used by scheduler tasks.
+void loom_serve_text_state_await_retirement(loom_serve_text_state_t* state);
+
+// Final destruction after state_is_retired succeeds. Never waits
 // for device work. On platform release failure, remaining handles and host
 // metadata stay intact for owner-side retry; otherwise state is consumed.
 iree_status_t loom_serve_text_state_deinitialize(
@@ -241,7 +271,9 @@ iree_status_t loom_serve_text_state_row_try_restore(
 // Starts at a successfully retired row boundary with a model parameter pin.
 // Extent and starting frontier have passed model validation. Denial changes no
 // selected row or checkpoint contents/ownership. Success installs ownership
-// before submitting transfers; all maps and backing survive until completion.
+// before submitting transfers; new backing becomes ready on the model timeline
+// before any initialization or restore. All maps and backing survive until
+// completion, including the native borrower after failed queue readiness.
 // CONTINUE may replace an active reservation while retaining its exact
 // frontier. out_reserved distinguishes admission from an unchanged earlier
 // reservation.
@@ -269,15 +301,17 @@ void loom_serve_text_state_checkpoint_complete_suspend(
     loom_serve_text_state_checkpoint_t* checkpoint);
 void loom_serve_text_state_checkpoint_release(
     loom_serve_text_state_checkpoint_t* checkpoint);
-// Starts at a successfully completed model frontier and enqueues relocation
-// followed by map uploads. The owner excludes mutation through completion;
-// old block ownership and backing remain live if any accepted work fails.
+// Starts at a successfully completed model frontier and submits dead-backing
+// release. The owner excludes mutation until complete_trim finishes all phases;
+// old block ownership and backing remain live if accepted work fails.
 iree_status_t loom_serve_text_state_submit_trim(
     loom_serve_text_state_t* state, loom_serve_text_trim_result_t* out_result);
-// Commits logical relocation and releases old backing after successful ALL
-// readiness. result is the unchanged submission record, completed in place.
+// After successful ALL readiness, advances relocation or old-backing release.
+// False requires another execution frontier wait before advancing again.
+// result is the unchanged submission record, finalized when complete is true.
 iree_status_t loom_serve_text_state_complete_trim(
-    loom_serve_text_state_t* state, loom_serve_text_trim_result_t* result);
+    loom_serve_text_state_t* state, loom_serve_text_trim_result_t* result,
+    bool* out_complete);
 
 #ifdef __cplusplus
 }  // extern "C"

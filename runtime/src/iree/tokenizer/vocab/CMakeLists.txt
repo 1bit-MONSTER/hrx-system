@@ -150,6 +150,7 @@ iree_cc_library(
   DEPS
     ::token
     iree::base
+    iree::base::internal::arena
   PUBLIC
 )
 

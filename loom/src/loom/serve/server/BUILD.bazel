@@ -39,8 +39,10 @@ loom_cc_library(
     hdrs = ["router.h"],
     deps = [
         ":configuration",
+        ":maintenance",
         ":registry",
         ":resources",
+        "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host:wake",
         "//loom/src/loom/serve/runtime/parameter:residency",
         "//loom/src/loom/serve/runtime/program:compilation",
@@ -69,11 +71,28 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "maintenance",
+    srcs = ["maintenance.c"],
+    hdrs = ["maintenance.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/host:timer",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "resources",
     srcs = ["resources.c"],
     hdrs = ["resources.h"],
     deps = [
         "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/parameter:residency",
         "//loom/src/loom/serve/runtime/storage:memory",
         "//loom/src/loom/serve/transport/http:listener",
         "//loom/src/loom/util:json",
@@ -82,6 +101,18 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:json",
         "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_test(
+    name = "maintenance_test",
+    srcs = ["maintenance_test.cc"],
+    deps = [
+        ":maintenance",
+        "//loom/src/loom/serve/runtime/device",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

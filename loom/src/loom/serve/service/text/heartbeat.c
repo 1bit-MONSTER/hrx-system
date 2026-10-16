@@ -76,11 +76,14 @@ typedef struct text_memory_record_t {
     // Owned frontiers, including a pending capture.
     uint64_t endpoints;
   } prefix_cache;
+} text_memory_record_t;
+
+typedef struct text_backing_record_t {
   // Model mutable-state backing excluding weights/workspace.
   loom_serve_memory_statistics_t state;
   // Independently reclaimable model parameter backing.
   loom_serve_memory_statistics_t weights;
-} text_memory_record_t;
+} text_backing_record_t;
 
 typedef struct text_shared_memory_record_t {
   // Entire shared device owner's retained backing, not this model's charge.
@@ -163,23 +166,36 @@ static iree_status_t loom_serve_text_memory_format(
       ",\"resident_tokens\":%" PRIu64 "},\"checkpoint_host_bytes\":%" PRIu64
       ",\"session_cache\":{\"capacity\":%" PRIu64 ",\"endpoints\":%" PRIu64
       "}"
-      ",\"prefix_cache\":{\"capacity\":%" PRIu64 ",\"endpoints\":%" PRIu64
-      "}"
-      ",\"elastic_state\":{\"reserved_bytes\":%" PRIu64
-      ",\"committed_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
-      ",\"released_bytes\":%" PRIu64
-      "}"
-      ",\"elastic_parameters\":{\"reserved_bytes\":%" PRIu64
-      ",\"committed_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
-      ",\"released_bytes\":%" PRIu64 "}",
+      ",\"prefix_cache\":{\"capacity\":%" PRIu64 ",\"endpoints\":%" PRIu64 "}",
       value.capacity, value.reserved, value.resident,
       value.checkpoint_host_bytes, value.session_cache.capacity,
       value.session_cache.endpoints, value.prefix_cache.capacity,
-      value.prefix_cache.endpoints, value.state.reserved_bytes,
-      value.state.committed_bytes, value.state.peak_bytes,
-      value.state.released_bytes, value.weights.reserved_bytes,
-      value.weights.committed_bytes, value.weights.peak_bytes,
-      value.weights.released_bytes);
+      value.prefix_cache.endpoints);
+}
+
+static iree_status_t loom_serve_text_backing_format(
+    const loom_serve_telemetry_record_t* record,
+    iree_string_builder_t* output) {
+  text_backing_record_t value;
+  static_assert(sizeof(value) <= sizeof(record->data), "record capacity");
+  memcpy(&value, record->data.words, sizeof(value));
+  return iree_string_builder_append_format(
+      output,
+      ",\"elastic_state\":{\"reserved_bytes\":%" PRIu64
+      ",\"committed_bytes\":%" PRIu64 ",\"pending_bytes\":%" PRIu64
+      ",\"releasing_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
+      ",\"released_bytes\":%" PRIu64
+      "}"
+      ",\"elastic_parameters\":{\"reserved_bytes\":%" PRIu64
+      ",\"committed_bytes\":%" PRIu64 ",\"pending_bytes\":%" PRIu64
+      ",\"releasing_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
+      ",\"released_bytes\":%" PRIu64 "}",
+      value.state.reserved_bytes, value.state.committed_bytes,
+      value.state.pending_bytes, value.state.releasing_bytes,
+      value.state.peak_bytes, value.state.released_bytes,
+      value.weights.reserved_bytes, value.weights.committed_bytes,
+      value.weights.pending_bytes, value.weights.releasing_bytes,
+      value.weights.peak_bytes, value.weights.released_bytes);
 }
 
 static const loom_serve_telemetry_event_t text_activity_event = {
@@ -188,6 +204,8 @@ static const loom_serve_telemetry_event_t text_work_event = {
     "text_work", loom_serve_text_work_format};
 static const loom_serve_telemetry_event_t text_memory_event = {
     "text_memory", loom_serve_text_memory_format};
+static const loom_serve_telemetry_event_t text_backing_event = {
+    "text_backing", loom_serve_text_backing_format};
 
 loom_serve_text_heartbeat_snapshot_t loom_serve_text_heartbeat_read(
     loom_serve_text_heartbeat_t* heartbeat) {
@@ -247,12 +265,16 @@ static void loom_serve_text_heartbeat_report(
       .session_cache = {state.session_cache.capacity,
                         state.session_cache.endpoints},
       .prefix_cache = {state.prefix_cache.capacity,
-                       state.prefix_cache.endpoints},
-      .state = state.state_memory,
-      .weights = state.weight_memory};
+                       state.prefix_cache.endpoints}};
   memset(&record.data, 0, sizeof(record.data));
   record.event = &text_memory_event;
   memcpy(record.data.words, &memory, sizeof(memory));
+  loom_serve_telemetry_stream_append(heartbeat->stream, &record);
+  const text_backing_record_t backing = {.state = state.state_memory,
+                                         .weights = state.weight_memory};
+  memset(&record.data, 0, sizeof(record.data));
+  record.event = &text_backing_event;
+  memcpy(record.data.words, &backing, sizeof(backing));
   loom_serve_telemetry_stream_append(heartbeat->stream, &record);
   loom_serve_telemetry_record_weights(heartbeat->stream, record.time_ns,
                                       &state.weight_activity);
@@ -297,7 +319,7 @@ iree_status_t loom_serve_text_heartbeat_advance(
     loom_serve_text_heartbeat_t* heartbeat, bool stopping, bool* out_progress) {
   bool tick = false;
   iree_status_t status = loom_serve_timer_advance(&heartbeat->timer, stopping,
-                                                  out_progress, &tick);
+                                                  true, out_progress, &tick);
   if (tick) {
     loom_serve_text_heartbeat_report(heartbeat);
   }

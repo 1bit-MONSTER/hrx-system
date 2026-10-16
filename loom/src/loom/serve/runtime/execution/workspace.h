@@ -94,6 +94,15 @@ iree_hal_pool_stats_t loom_serve_workspace_statistics(
 // workspace statistics may still count those until the queued sweep runs.
 iree_device_size_t loom_serve_workspace_trim(loom_serve_workspace_t* workspace);
 
+// Schedules cached backing trim after all captured allocations have retired
+// and remained idle for timeout nanoseconds. The caller supplies a positive
+// timeout and its current time. Returns true while roots still await collection
+// or an idle interval awaits expiry. Live roots prevent expiry, and retirement
+// starts a new interval; repeated queries do not keep unused storage hot.
+// Native trim is queued without waiting for physical release.
+bool loom_serve_workspace_trim_idle(loom_serve_workspace_t* workspace,
+                                    iree_time_t now, iree_duration_t timeout);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

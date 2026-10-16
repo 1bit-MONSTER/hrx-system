@@ -6,7 +6,9 @@
 
 #include "loom/serve/runtime/program/jit.h"
 
+#include <atomic>
 #include <filesystem>
+#include <thread>
 
 #include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
@@ -22,6 +24,210 @@ namespace {
 
 using loom_serve::testing::Compilation;
 using loom_serve::testing::JitTest;
+
+// A real compiler allocation boundary, not a mocked compiler or task sink.
+// Holding the first allocations proves distinct parents have entered compiler
+// work concurrently before either can publish a native request.
+class JitConcurrentTest : public JitTest {
+ protected:
+  void SetUp() override {
+    JitTest::SetUp();
+    if (HasFatalFailure()) {
+      return;
+    }
+    loom_serve_jit_release(jit_);
+    jit_ = nullptr;
+    const iree_string_view_t providers[] = {IREE_SV("config.loom"),
+                                            IREE_SV("stage.loom")};
+    const loom_serve_sources_t sources = {
+        .base_directory = iree_make_cstring_view(directory_.c_str()),
+        .count = IREE_ARRAYSIZE(providers),
+        .values = providers,
+    };
+    IREE_ASSERT_OK(loom_serve_jit_create(
+        device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
+        nullptr, &compilation_, {this, Allocate}, &jit_));
+  }
+
+  void HoldParents() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    holding_ = GetParam() > 1;
+  }
+
+  void JoinParentEntries() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (holding_) {
+      condition_.wait(lock, [&] { return entered_ >= 2; });
+      holding_ = false;
+      condition_.notify_all();
+    }
+  }
+
+  void CheckConcurrent(bool direct_dispatch);
+
+ private:
+  static iree_status_t Allocate(void* self, iree_allocator_command_t command,
+                                const void* params, void** inout_ptr) {
+    auto* test = static_cast<JitConcurrentTest*>(self);
+    if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+        std::this_thread::get_id() != test->owner_) {
+      std::unique_lock<std::mutex> lock(test->mutex_);
+      if (test->holding_) {
+        ++test->entered_;
+        test->condition_.notify_all();
+        test->condition_.wait(lock, [&] { return !test->holding_; });
+      }
+    }
+    const auto allocator = iree_allocator_system();
+    return allocator.ctl(allocator.self, command, params, inout_ptr);
+  }
+
+  // Outer test thread is not a compiler participant in the gate.
+  std::thread::id owner_ = std::this_thread::get_id();
+  // Joins the gate state and final release notification.
+  std::mutex mutex_;
+  // Compiler allocations wait only while the outer test holds their dependency.
+  std::condition_variable condition_;
+  // Number of blocked worker entries; a worker cannot enter twice while held.
+  size_t entered_ = 0;
+  // Armed only on multiworker runs; one-worker coverage exercises join
+  // progress.
+  bool holding_ = false;
+};
+
+void JitConcurrentTest::CheckConcurrent(bool direct_dispatch) {
+  const loomc_config_options_t config = {
+      nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
+  struct Result {
+    // Joins callback publication before the outer test consumes its output.
+    std::mutex mutex;
+    // Outer-thread completion notification.
+    std::condition_variable condition;
+    // Final callback has finished using this record.
+    bool complete = false;
+    // Owned callback status, consumed after the join.
+    iree_status_t status = iree_ok_status();
+    // Owned output independent of the source catalog.
+    loom_serve_jit_stage_t* stage = nullptr;
+    // Shared completion ordinal counter, alive through every callback.
+    std::atomic<size_t>* next_completion = nullptr;
+    // Observed publication order, independent of native completion order.
+    size_t completion_index = 0;
+  } results[3];
+  std::atomic<size_t> next_completion = 0;
+  const iree_string_view_t roots[] = {
+      direct_dispatch ? IREE_SV("increment_0") : IREE_SV("advance"),
+      direct_dispatch ? IREE_SV("increment_0") : IREE_SV("selected_pair"),
+      direct_dispatch ? IREE_SV("absent") : IREE_SV("invalid_argument"),
+  };
+  const auto compile = direct_dispatch ? loom_serve_jit_compile_dispatch_async
+                                       : loom_serve_jit_compile_async;
+  HoldParents();
+  auto status = iree_ok_status();
+  for (size_t i = 0; i < IREE_ARRAYSIZE(results); ++i) {
+    results[i].next_completion = &next_completion;
+    auto submitted = compile(
+        jit_, roots[i], &config,
+        [](void* payload, iree_status_t outcome,
+           loom_serve_jit_stage_t* stage) {
+          auto* result = static_cast<Result*>(payload);
+          std::lock_guard<std::mutex> lock(result->mutex);
+          result->status = outcome;
+          result->stage = stage;
+          result->completion_index = result->next_completion->fetch_add(1);
+          result->complete = true;
+          result->condition.notify_one();
+        },
+        &results[i]);
+    if (!iree_status_is_ok(submitted)) {
+      results[i].complete = true;
+    }
+    status = iree_status_join(status, submitted);
+  }
+  JoinParentEntries();
+  // Accepted jobs retain the catalog. Its final release cannot discard pending
+  // native results, even when one parent fails after publishing a request.
+  loom_serve_jit_release(jit_);
+  jit_ = nullptr;
+  for (size_t i = 0; i < IREE_ARRAYSIZE(results); ++i) {
+    auto& result = results[i];
+    std::unique_lock<std::mutex> lock(result.mutex);
+    result.condition.wait(lock, [&] { return result.complete; });
+    EXPECT_EQ(result.completion_index, i);
+    if (i == 2) {
+      IREE_EXPECT_STATUS_IS(direct_dispatch ? IREE_STATUS_NOT_FOUND
+                                            : IREE_STATUS_INVALID_ARGUMENT,
+                            result.status);
+      EXPECT_EQ(result.stage, nullptr);
+    } else {
+      status = iree_status_join(status, result.status);
+      if (result.stage && direct_dispatch) {
+        dispatches_[i] = loom_serve_jit_stage_dispatch(result.stage);
+        loom_serve_dispatch_retain(dispatches_[i]);
+      } else if (result.stage) {
+        status = iree_status_join(
+            status, loom_serve_jit_stage_record(
+                        result.stage, iree_hal_queue_family(dispatch_),
+                        IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, nullptr, nullptr,
+                        &commands_[i]));
+      }
+    }
+    loom_serve_jit_stage_free(result.stage);
+  }
+  IREE_ASSERT_OK(status);
+  EXPECT_EQ(compilation_.commands, direct_dispatch ? 0u : 3u);
+  EXPECT_EQ(compilation_.kernels, direct_dispatch ? 1u : 8u);
+  EXPECT_EQ(compilation_.reused_kernels, direct_dispatch ? 1u : 3u);
+  EXPECT_EQ(compilation_.entries, direct_dispatch ? 2u : 10u);
+  if (direct_dispatch) {
+    EXPECT_EQ(dispatches_[0], dispatches_[1]);
+  }
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      loom_serve_device_storage_pool(device_owner_),
+      iree_hal_make_pool_reservation_request(sizeof(input_), 0),
+      iree_infinite_timeout(), &buffer_));
+  const iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
+  uint64_t completion = 0;
+  IREE_ASSERT_OK(
+      loom_serve_execution_transfer(execution_, 1, &upload, &completion));
+  const iree_hal_buffer_binding_t binding = {buffer_, 0, sizeof(input_)};
+  for (size_t i = 0; i < commands_.size(); ++i) {
+    if (direct_dispatch) {
+      iree_hal_buffer_ref_t scratch;
+      IREE_ASSERT_OK(loom_serve_dispatch_issue(
+          dispatches_[i], execution_, {1, &binding}, &scratch, &completion));
+    } else {
+      IREE_ASSERT_OK(loom_serve_execution_execute(execution_, commands_[i],
+                                                  {1, &binding}, &completion));
+    }
+  }
+  const iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
+  IREE_ASSERT_OK(
+      loom_serve_execution_feedback(execution_, 1, &download, &completion));
+  IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
+  for (size_t i = 0; i < output_.size(); ++i) {
+    EXPECT_EQ(output_[i], direct_dispatch
+                              ? (i == 0 ? 110 : 100)
+                              : 105 + i + (i == 7 ? 24 : (i == 2 ? 7 : 0)));
+  }
+}
+
+TEST_P(JitConcurrentTest, SharedParentsJoinNativesAndRetainExecutableOutput) {
+  CheckConcurrent(false);
+}
+
+TEST_P(JitConcurrentTest, DirectStagesJoinNativesAndRetainExecutableOutput) {
+  CheckConcurrent(true);
+}
+
+INSTANTIATE_TEST_SUITE_P(SharedWorkers, JitConcurrentTest,
+                         ::testing::Values(1, 4));
 
 TEST_P(JitTest, VmLibrariesPreserveMissingPrivateAndDuplicateDiagnostics) {
   struct Case {
@@ -73,7 +279,7 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
       .count = IREE_ARRAYSIZE(providers),
       .values = providers,
   };
-  auto status = loom_serve_jit_allocate(
+  auto status = loom_serve_jit_create(
       device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
       nullptr, &report, host_allocator_, &invalid);
   EXPECT_NE(iree_status_code(status), IREE_STATUS_OK);
@@ -86,7 +292,7 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
   EXPECT_NE(std::string(message.data, message.size).find("invalid.loom"),
             std::string::npos);
   iree_status_free(status);
-  loom_serve_jit_free(invalid);
+  loom_serve_jit_release(invalid);
 
   const iree_string_view_t root = IREE_SVL("broken");
   // More failures than retained slots leave complete severity counters.
@@ -120,9 +326,9 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
       .count = IREE_ARRAYSIZE(providers),
       .values = providers,
   };
-  IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch_, host, &sources,
-                                         nullptr, &peer_report, host_allocator_,
-                                         &peer));
+  IREE_ASSERT_OK(loom_serve_jit_create(device_, dispatch_, host, &sources,
+                                       nullptr, &peer_report, host_allocator_,
+                                       &peer));
   const loomc_config_options_t config = {
       nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
   Compilation jobs[2];

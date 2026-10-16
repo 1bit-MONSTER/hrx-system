@@ -865,7 +865,7 @@ static iree_status_t loom_serve_image_advance(
   service->status = iree_status_join(
       service->status,
       loom_serve_timer_advance(&service->timer,
-                               service->stopping && !service->active,
+                               service->stopping && !service->active, true,
                                &timer_progress, &tick));
   *out_progress |= timer_progress;
   if (tick) {

@@ -11,9 +11,9 @@
 // a single O(L) traversal from each starting position finds ALL matching
 // vocabulary tokens.
 //
-// The trie is built from a token array and string table, referencing but not
-// owning that data. It uses a Double-Array Aho-Corasick (DAAC) representation
-// for O(1) state transitions via:
+// The trie is built from a token array and string table without retaining
+// either input. It uses a Double-Array Aho-Corasick (DAAC) representation for
+// O(1) state transitions via:
 //   next_state = base[current_state] + byte
 //   valid = (check[next_state] == current_state)
 //
@@ -53,12 +53,16 @@ extern "C" {
 // State transitions are O(1): next = base[state] + byte, valid if
 // check[next] == state.
 typedef struct iree_tokenizer_vocab_trie_t {
+  // Allocator owning the single slab containing this object and its arrays.
   iree_allocator_t allocator;
   // Maximum token length in bytes.
   iree_host_size_t max_depth;
-  iree_host_size_t node_count;  // Number of nodes (states).
-  iree_host_size_t array_size;  // Size of base/check/output arrays.
-  int32_t* base;                // Transition base offsets.
+  // Number of nodes (states).
+  iree_host_size_t node_count;
+  // Size of base/check/output arrays, including unused slots.
+  iree_host_size_t array_size;
+  // Transition base offsets.
+  int32_t* base;
   // Parent state for validation (-1 = unused).
   int32_t* check;
   // Token ID at state (-1 = no token).
@@ -67,14 +71,16 @@ typedef struct iree_tokenizer_vocab_trie_t {
 
 // Builds an immutable prefix trie from token array and string table.
 //
-// The trie references but does not own |tokens| and |string_table|.
-// These must remain valid for the lifetime of the trie.
+// The trie owns its lookup arrays and does not retain |tokens| or
+// |string_table|. Both inputs need only remain valid for the duration of this
+// call. Temporary construction storage is released before returning, including
+// on failure.
 //
 // |tokens| is the array of token entries.
 // |token_count| is the number of tokens in the array.
 // |string_table| contains the UTF-8 string data referenced by tokens.
 // |allocator| is used for trie storage allocation.
-// |out_trie| receives the built trie on success.
+// |out_trie| receives the built trie on success or NULL on failure.
 iree_status_t iree_tokenizer_vocab_trie_build(
     const iree_tokenizer_token_t* tokens, iree_host_size_t token_count,
     iree_const_byte_span_t string_table, iree_allocator_t allocator,
@@ -117,9 +123,12 @@ static inline iree_host_size_t iree_tokenizer_vocab_trie_node_count(
 //     }
 //   }
 typedef struct iree_tokenizer_trie_cursor_t {
+  // Borrowed trie, which must outlive traversal.
   const iree_tokenizer_vocab_trie_t* trie;
-  uint32_t node_index;     // Current state (0 = root).
-  iree_host_size_t depth;  // Number of bytes consumed.
+  // Current state (0 = root).
+  uint32_t node_index;
+  // Number of bytes consumed.
+  iree_host_size_t depth;
 } iree_tokenizer_trie_cursor_t;
 
 // Returns the current traversal depth (bytes consumed).

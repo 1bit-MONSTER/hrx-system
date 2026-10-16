@@ -98,9 +98,9 @@ class ControlTest
         .count = IREE_ARRAYSIZE(providers),
         .values = providers,
     };
-    IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch, host_, &sources,
-                                           nullptr, &compilation_,
-                                           host_allocator_, &jit_));
+    IREE_ASSERT_OK(loom_serve_jit_create(device_, dispatch, host_, &sources,
+                                         nullptr, &compilation_,
+                                         host_allocator_, &jit_));
     IREE_ASSERT_OK(Prepare(family, "prefill_to_decode", &commands_[0]));
     IREE_ASSERT_OK(Prepare(family, "decode_transition", &commands_[1]));
     IREE_ASSERT_OK(Prepare(family, "device_continuation", &commands_[2]));
@@ -146,7 +146,7 @@ class ControlTest
     for (auto* command : commands_) {
       iree_hal_command_buffer_release(command);
     }
-    loom_serve_jit_free(jit_);
+    loom_serve_jit_release(jit_);
     loom_serve_execution_release(execution_);
     loom_serve_workspace_release(workspace_);
     iree_hal_pool_release(storage_pool_);

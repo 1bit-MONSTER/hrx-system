@@ -100,7 +100,8 @@ bool loom_serve_timer_is_pending(loom_serve_timer_t* timer) {
 }
 
 iree_status_t loom_serve_timer_advance(loom_serve_timer_t* timer, bool stopping,
-                                       bool* out_progress, bool* out_tick) {
+                                       bool enabled, bool* out_progress,
+                                       bool* out_tick) {
   *out_tick = false;
   iree_slim_mutex_lock(&timer->mutex);
   iree_status_t status = timer->events.status;
@@ -133,7 +134,7 @@ iree_status_t loom_serve_timer_advance(loom_serve_timer_t* timer, bool stopping,
       status = iree_status_join(status, stop_status);
     }
   }
-  if (!timer->stopping && !pending && timer->interval) {
+  if (!timer->stopping && enabled && !pending && timer->interval) {
     *out_tick = true;
     *out_progress = true;
     iree_async_timer_operation_t* operation = &timer->operation;

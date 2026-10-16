@@ -12,6 +12,27 @@
 #include "iree/base/internal/debugging.h"
 #include "iree/base/internal/math.h"
 
+// Per-allocation and free-list zones can overwhelm traces of compiler work.
+// Backing allocations, oversized allocations, and pool lifecycle operations
+// remain visible without enabling these fine-grained operation zones.
+#ifndef IREE_ARENA_TRACE_ENABLE_OPERATIONS
+#define IREE_ARENA_TRACE_ENABLE_OPERATIONS 0
+#endif  // IREE_ARENA_TRACE_ENABLE_OPERATIONS
+
+#if IREE_ARENA_TRACE_ENABLE_OPERATIONS
+#define IREE_ARENA_TRACE_ZONE_BEGIN IREE_TRACE_ZONE_BEGIN
+#define IREE_ARENA_TRACE_ZONE_BEGIN_NAMED IREE_TRACE_ZONE_BEGIN_NAMED
+#define IREE_ARENA_TRACE_ZONE_END IREE_TRACE_ZONE_END
+#define IREE_ARENA_RETURN_AND_END_ZONE_IF_ERROR \
+  IREE_RETURN_AND_END_ZONE_IF_ERROR
+#else
+#define IREE_ARENA_TRACE_ZONE_BEGIN(...)
+#define IREE_ARENA_TRACE_ZONE_BEGIN_NAMED(...)
+#define IREE_ARENA_TRACE_ZONE_END(...)
+#define IREE_ARENA_RETURN_AND_END_ZONE_IF_ERROR(zone_id, ...) \
+  IREE_RETURN_IF_ERROR(__VA_ARGS__)
+#endif  // IREE_ARENA_TRACE_ENABLE_OPERATIONS
+
 //===----------------------------------------------------------------------===//
 // iree_arena_block_pool_t
 //===----------------------------------------------------------------------===//
@@ -145,7 +166,7 @@ void iree_arena_block_pool_query_statistics(
 iree_status_t iree_arena_block_pool_acquire(iree_arena_block_pool_t* block_pool,
                                             iree_arena_block_t** out_block,
                                             void** out_ptr) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
 
   iree_arena_block_t* block =
       iree_atomic_arena_block_slist_pop(&block_pool->available_slist);
@@ -157,11 +178,13 @@ iree_status_t iree_arena_block_pool_acquire(iree_arena_block_pool_t* block_pool,
     // case we may end up allocating a block when perhaps we didn't need to but
     // that's fine - it's just one block and the contention means there's likely
     // to be a need for more anyway.
+    IREE_TRACE_ZONE_BEGIN_NAMED(z_allocate, "iree_arena_block_pool_allocate");
     uint8_t* block_base = NULL;
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, iree_allocator_malloc_uninitialized(block_pool->block_allocator,
-                                                block_pool->total_block_size,
-                                                (void**)&block_base));
+    iree_status_t status = iree_allocator_malloc_uninitialized(
+        block_pool->block_allocator, block_pool->total_block_size,
+        (void**)&block_base);
+    IREE_TRACE_ZONE_END(z_allocate);
+    IREE_ARENA_RETURN_AND_END_ZONE_IF_ERROR(z0, status);
     block = iree_arena_block_trailer(block_pool, block_base);
     *out_ptr = block_base;
     IREE_STATISTICS(iree_atomic_fetch_add(
@@ -177,14 +200,14 @@ iree_status_t iree_arena_block_pool_acquire(iree_arena_block_pool_t* block_pool,
   block->next = NULL;
   *out_block = block;
 
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 void iree_arena_block_pool_release(iree_arena_block_pool_t* block_pool,
                                    iree_arena_block_t* block_head,
                                    iree_arena_block_t* block_tail) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
 #if defined(IREE_SANITIZER_THREAD)
   // Arena blocks are custom-freed back to this pool and later reused without
   // malloc/free. Publish the ownership transfer so TSAN does not treat the next
@@ -193,7 +216,7 @@ void iree_arena_block_pool_release(iree_arena_block_pool_t* block_pool,
 #endif  // IREE_SANITIZER_THREAD
   iree_atomic_arena_block_slist_concat(&block_pool->available_slist, block_head,
                                        block_tail);
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -211,7 +234,7 @@ void iree_arena_deinitialize(iree_arena_allocator_t* arena) {
 }
 
 void iree_arena_reset(iree_arena_allocator_t* arena) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
 
   // Snapshot block pool + per-arena state BEFORE clearing or releasing
   // anything. The arena struct itself may live within one of its own blocks
@@ -253,7 +276,7 @@ void iree_arena_reset(iree_arena_allocator_t* arena) {
     iree_arena_block_pool_release(block_pool, block_head, block_tail);
   }
 
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
 }
 
 void iree_arena_transfer(iree_arena_allocator_t* source,
@@ -297,7 +320,7 @@ iree_arena_checkpoint_t iree_arena_checkpoint_save(
 
 void iree_arena_checkpoint_restore(const iree_arena_checkpoint_t* checkpoint) {
   IREE_ASSERT_ARGUMENT(checkpoint);
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
 
   // The checkpoint itself may be stored in arena memory that this operation
   // discards. Copy it before releasing any storage.
@@ -364,7 +387,7 @@ void iree_arena_checkpoint_restore(const iree_arena_checkpoint_t* checkpoint) {
     IREE_ASAN_POISON_MEMORY_REGION(free_ptr, saved_state.block_bytes_remaining);
   }
 
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
 }
 
 iree_status_t iree_arena_allocate(iree_arena_allocator_t* arena,
@@ -418,10 +441,10 @@ iree_status_t iree_arena_allocate(iree_arena_allocator_t* arena,
   // Check to see if the current block (if any) has space - if not, get another.
   if (arena->block_head == NULL ||
       arena->block_bytes_remaining < aligned_length) {
-    IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_arena_allocate_grow");
+    IREE_ARENA_TRACE_ZONE_BEGIN_NAMED(z0, "iree_arena_allocate_grow");
     iree_arena_block_t* block = NULL;
     void* ptr = NULL;
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+    IREE_ARENA_RETURN_AND_END_ZONE_IF_ERROR(
         z0, iree_arena_block_pool_acquire(arena->block_pool, &block, &ptr));
     block->next = arena->block_head;
     arena->block_head = block;
@@ -433,7 +456,7 @@ iree_status_t iree_arena_allocate(iree_arena_allocator_t* arena,
     IREE_ASAN_POISON_MEMORY_REGION(
         iree_arena_block_ptr(block_pool, arena->block_head),
         block_pool->usable_block_size);
-    IREE_TRACE_ZONE_END(z0);
+    IREE_ARENA_TRACE_ZONE_END(z0);
   }
 
   // Slice out the allocation from the current block.
@@ -476,16 +499,16 @@ iree_status_t iree_arena_allocate_array(iree_arena_allocator_t* arena,
                                         iree_host_size_t count,
                                         iree_host_size_t element_size,
                                         void** out_ptr) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
   iree_host_size_t byte_size = 0;
   if (!iree_host_size_checked_mul(count, element_size, &byte_size)) {
-    IREE_TRACE_ZONE_END(z0);
+    IREE_ARENA_TRACE_ZONE_END(z0);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "array size overflow: %" PRIhsz " * %" PRIhsz,
                             count, element_size);
   }
   iree_status_t status = iree_arena_allocate(arena, byte_size, out_ptr);
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -494,17 +517,17 @@ iree_status_t iree_arena_allocate_array_aligned(iree_arena_allocator_t* arena,
                                                 iree_host_size_t element_size,
                                                 iree_host_size_t min_alignment,
                                                 void** out_ptr) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
   iree_host_size_t byte_size = 0;
   if (!iree_host_size_checked_mul(count, element_size, &byte_size)) {
-    IREE_TRACE_ZONE_END(z0);
+    IREE_ARENA_TRACE_ZONE_END(z0);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "array size overflow: %" PRIhsz " * %" PRIhsz,
                             count, element_size);
   }
   iree_status_t status =
       iree_arena_allocate_aligned(arena, byte_size, min_alignment, out_ptr);
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -518,10 +541,10 @@ iree_status_t iree_arena_grow_array(iree_arena_allocator_t* arena,
       minimum_capacity <= *inout_capacity) {
     return iree_ok_status();
   }
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_ARENA_TRACE_ZONE_BEGIN(z0);
   iree_host_size_t doubled_capacity = 0;
   if (!iree_host_size_checked_mul(*inout_capacity, 2, &doubled_capacity)) {
-    IREE_TRACE_ZONE_END(z0);
+    IREE_ARENA_TRACE_ZONE_END(z0);
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE, "capacity overflow");
   }
   iree_host_size_t new_capacity = iree_max(minimum_capacity, doubled_capacity);
@@ -535,7 +558,7 @@ iree_status_t iree_arena_grow_array(iree_arena_allocator_t* arena,
     *inout_ptr = new_ptr;
     *inout_capacity = new_capacity;
   }
-  IREE_TRACE_ZONE_END(z0);
+  IREE_ARENA_TRACE_ZONE_END(z0);
   return status;
 }
 
