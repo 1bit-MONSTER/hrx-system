@@ -149,6 +149,83 @@ loom_execution_test(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+loom_generated_file(
+  NAME
+    temporal_fold_image_npu4
+  GENERATOR
+    loom::tools::loom-compile
+  OUTPUT
+    "temporal_fold_npu4.xdna"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/temporal_fold.loom"
+    "--target=amd.xdna.aie2p:amd.xdna.strix.17f0_10"
+  INPUTS
+    "test/temporal_fold.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+loom_generated_file(
+  NAME
+    temporal_fold_image_npu5
+  GENERATOR
+    loom::tools::loom-compile
+  OUTPUT
+    "temporal_fold_npu5.xdna"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/temporal_fold.loom"
+    "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11"
+  INPUTS
+    "test/temporal_fold.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_cc_binary(
+  NAME
+    temporal_fold_test_bin
+  SRCS
+    "temporal_fold_test.cc"
+  DEPS
+    iree::base
+    iree::base::tooling::flags
+    iree::hal
+    iree::hal::cts::util::registry
+    iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
+    iree::hal::drivers::amd::driver
+    iree::testing::gtest
+  TESTONLY
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+iree_native_test(
+  NAME
+    "temporal_fold_execution_test"
+  ARGS
+    "--executable_file_npu4={{${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu4.xdna}}"
+    "--executable_file_npu5={{${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu5.xdna}}"
+  SRC
+    ::temporal_fold_test_bin
+  DATA
+    "${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu4.xdna"
+    "${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu5.xdna"
+  LABELS
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
 iree_native_test(
   NAME
