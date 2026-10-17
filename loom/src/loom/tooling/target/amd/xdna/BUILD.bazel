@@ -10,7 +10,7 @@ load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_config_compatible_with",
 )
-load("//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("//loom/build_tools/bazel:defs.bzl", "loom_execution_profile", "loom_test")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
 load("//loom/target/amd/xdna:execution_profiles.bzl", "XDNA_HARDWARE_PROFILE")
 
@@ -87,6 +87,26 @@ iree_execution_test_suite(
         "//loom/config/target/arch:vm",
     ]),
     tools = {"iree-test-loom": "//loom/src/loom/tools/iree-test-loom"},
+)
+
+# This topology reserves all eight columns of the Strix Halo array.
+_XDNA_EIGHT_COLUMN_PROFILE = loom_execution_profile(
+    name = "xdna_eight_columns",
+    build_requirements = XDNA_HARDWARE_PROFILE.build_requirements,
+    executor = XDNA_HARDWARE_PROFILE.executor,
+    resource_group = XDNA_HARDWARE_PROFILE.resource_group,
+    run_requirements = XDNA_HARDWARE_PROFILE.run_requirements,
+    runner_args = ["--device=xdna://0?columns=8"],
+    target_class = XDNA_HARDWARE_PROFILE.target_class,
+    target_family = XDNA_HARDWARE_PROFILE.target_family,
+)
+
+loom_test(
+    name = "multicast_execution_test",
+    srcs = ["test/channel_multicast.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [_XDNA_EIGHT_COLUMN_PROFILE],
+    tags = ["manual"],
 )
 
 loom_check_test(

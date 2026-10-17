@@ -80,6 +80,41 @@ iree_execution_test_suite(
 )
 endif()
 
+loom_test_module(
+  NAME
+    multicast_execution_test_module
+  SRCS
+    "test/channel_multicast.loom"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    multicast_execution_test_execute_xdna_eight_columns_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::multicast_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna://0?columns=8"
+  LABELS
+    "manual"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_eight_columns"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
 iree_native_test(
   NAME

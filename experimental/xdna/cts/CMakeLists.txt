@@ -41,38 +41,6 @@ endif()
 
 iree_py_library(
   NAME
-    multicast_cases
-  MAIN
-    "multicast_cases.py"
-  SRCS
-    "multicast_cases.py"
-)
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_execution_test_suite(
-  NAME
-    multicast_npu2_test
-  MANIFESTS
-    "multicast_npu2.test.json"
-  TOOLS
-    "generate-cases=::multicast_cases"
-    "iree-xdna-run=iree::experimental::xdna::iree-xdna-run"
-    "loom-compile=loom::tools::loom-compile"
-  DATA
-    "${PROJECT_SOURCE_DIR}/experimental/xdna/cts/testdata/multicast.loom"
-  LABELS
-    "manual"
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-iree_py_library(
-  NAME
     temporal_fold_cases
   MAIN
     "temporal_fold_cases.py"
