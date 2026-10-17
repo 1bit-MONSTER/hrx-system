@@ -13,12 +13,16 @@
 void CtsMappedMemory::Create(const amdf_api_t* api, amdf_memory_scope_t* scope,
                              const amdf_memory_create_info_t& create_info) {
   ASSERT_EQ(api->memory_create(scope, &create_info, &memory), AMDF_STATUS_OK);
-  info.type = AMDF_STRUCTURE_TYPE_MEMORY_INFO;
-  info.structure_size = sizeof(info);
-  ASSERT_EQ(api->memory_query_info(memory, &info), AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(Map(api));
   ASSERT_EQ(info.byte_length, create_info.byte_length);
   ASSERT_EQ(info.flags & create_info.required_flags,
             create_info.required_flags);
+}
+
+void CtsMappedMemory::Map(const amdf_api_t* api) {
+  info.type = AMDF_STRUCTURE_TYPE_MEMORY_INFO;
+  info.structure_size = sizeof(info);
+  ASSERT_EQ(api->memory_query_info(memory, &info), AMDF_STATUS_OK);
 
   amdf_memory_map_info_t map = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,

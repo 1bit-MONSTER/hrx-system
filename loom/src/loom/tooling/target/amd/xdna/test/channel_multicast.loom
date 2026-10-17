@@ -1,0 +1,383 @@
+// Independent receiver credits survive skew across eight columns and two rows.
+aie2p.target<array> @array_target
+
+func.def inline @make_ring(%memory: pool, %capacity: index) -> (channel<tile<16xi32>>) {
+  %origin = index.constant 0 : offset
+  %record_bytes = index.constant 64 : index
+  %storage_length = index.mul %capacity, %record_bytes : index
+  %storage_bytes = index.cast %storage_length : index to offset
+  %storage = buffer.alloca<workgroup> pool(%memory) align(64) %storage_bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<[%capacity]x16xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<[%capacity]x16xi32>, index -> channel<tile<16xi32>>
+  func.return %records : channel<tile<16xi32>>
+}
+
+func.def inline @ingress(%input: buffer, %records: channel<tile<16xi32>>, %stream: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c33 = index.constant 33 : index
+  %c64 = index.constant 64 : index
+  %c2112 = index.constant 2112 : index
+  %base = index.mul %stream, %c2112 : index
+  scf.for %record = [%c0 to %c33 step %c1] {
+    %position = index.mul %record, %c64 : index
+    %byte_index = index.add %base, %position : index
+    %offset = index.cast %byte_index : index to offset
+    %external = buffer.view %input[%offset] : buffer -> view<16xi32>
+    %write, %destination = channel.reserve %records : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %copy = kernel.async.copy %external to %destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<16xi32> to view<16xi32> -> kernel.async.token
+    %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+    channel.publish %write : write<tile<16xi32>>
+  }
+  func.return
+}
+
+func.def inline @distribute2(%source: channel<tile<16xi32>>, %destination0: channel<tile<16xi32>>, %destination1: channel<tile<16xi32>>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c33 = index.constant 33 : index
+  scf.for %record = [%c0 to %c33 step %c1] {
+    %read, %payload = channel.acquire %source : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+    %read0, %read1 = channel.fanout %read : read<tile<16xi32>> -> (read<tile<16xi32>>, read<tile<16xi32>>)
+    %write0, %payload0 = channel.reserve %destination0 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write1, %payload1 = channel.reserve %destination1 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    channel.copy %read0 -> %write0 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read1 -> %write1 : read<tile<16xi32>>, write<tile<16xi32>>
+  }
+  func.return
+}
+
+func.def inline @distribute8(%source: channel<tile<16xi32>>, %destination0: channel<tile<16xi32>>, %destination1: channel<tile<16xi32>>, %destination2: channel<tile<16xi32>>, %destination3: channel<tile<16xi32>>, %destination4: channel<tile<16xi32>>, %destination5: channel<tile<16xi32>>, %destination6: channel<tile<16xi32>>, %destination7: channel<tile<16xi32>>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c33 = index.constant 33 : index
+  scf.for %record = [%c0 to %c33 step %c1] {
+    %read, %payload = channel.acquire %source : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+    %read0, %read1, %read2, %read3, %read4, %read5, %read6, %read7 = channel.fanout %read : read<tile<16xi32>> -> (read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>, read<tile<16xi32>>)
+    %write0, %payload0 = channel.reserve %destination0 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write1, %payload1 = channel.reserve %destination1 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write2, %payload2 = channel.reserve %destination2 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write3, %payload3 = channel.reserve %destination3 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write4, %payload4 = channel.reserve %destination4 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write5, %payload5 = channel.reserve %destination5 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write6, %payload6 = channel.reserve %destination6 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %write7, %payload7 = channel.reserve %destination7 : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    channel.copy %read0 -> %write0 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read1 -> %write1 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read2 -> %write2 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read3 -> %write3 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read4 -> %write4 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read5 -> %write5 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read6 -> %write6 : read<tile<16xi32>>, write<tile<16xi32>>
+    channel.copy %read7 -> %write7 : read<tile<16xi32>>, write<tile<16xi32>>
+  }
+  func.return
+}
+
+func.def inline @consume(%left: channel<tile<16xi32>>, %right: channel<tile<16xi32>>, %output: channel<tile<16xi32>>, %external_output: buffer, %stream: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c33 = index.constant 33 : index
+  %c1_i32 = scalar.constant 1 : i32
+  %c5_i32 = scalar.constant 5 : i32
+  %c6_i32 = scalar.constant 6 : i32
+  %c13_i32 = scalar.constant 13 : i32
+  %c17_i32 = scalar.constant 17 : i32
+  %c64 = index.constant 64 : index
+  %c2112 = index.constant 2112 : index
+  %base = index.mul %stream, %c2112 : index
+  %mask = scalar.constant 63 : i32
+  scf.for %record = [%c0 to %c33 step %c1] {
+    %a_read, %a = channel.acquire %left : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+    %b_read, %b = channel.acquire %right : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+    %a_count = view.load %a[0] : view<16xi32> -> i32
+    %b_count = view.load %b[0] : view<16xi32> -> i32
+    %mixed = scalar.xori %a_count, %b_count : i32
+    %bounded = scalar.andi %mixed, %mask : i32
+    %positive = scalar.addi %bounded, %c1_i32 : i32
+    %iterations = scalar.shli %positive, %c6_i32 : i32
+    %count = index.cast %iterations : i32 to index
+    %a_seed = view.load %a[1] : view<16xi32> -> i32
+    %b_seed = view.load %b[1] : view<16xi32> -> i32
+    %seed = scalar.xori %a_seed, %b_seed : i32
+    %state = scf.for %iteration = [%c0 to %count step %c1](%current = %seed : i32) -> (i32) {
+      %shift13 = scalar.shli %current, %c13_i32 : i32
+      %first = scalar.xori %current, %shift13 : i32
+      %shift17 = scalar.shrui %first, %c17_i32 : i32
+      %second = scalar.xori %first, %shift17 : i32
+      %shift5 = scalar.shli %second, %c5_i32 : i32
+      %next = scalar.xori %second, %shift5 : i32
+      scf.yield %next : i32
+    }
+    %write, %destination = channel.reserve %output : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+    %a_vector = vector.load %a[0] : view<16xi32> -> vector<16xi32>
+    %b_vector = vector.load %b[0] : view<16xi32> -> vector<16xi32>
+    %sum = vector.addi %a_vector, %b_vector : vector<16xi32>
+    %state_vector = vector.splat %state : vector<16xi32>
+    %result = vector.xori %sum, %state_vector : vector<16xi32>
+    vector.store %result, %destination[0] : vector<16xi32>, view<16xi32>
+    channel.release %a_read : read<tile<16xi32>>
+    channel.release %b_read : read<tile<16xi32>>
+    channel.publish %write : write<tile<16xi32>>
+    %read, %source = channel.acquire %output : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+    %position = index.mul %record, %c64 : index
+    %byte_index = index.add %base, %position : index
+    %offset = index.cast %byte_index : index to offset
+    %external = buffer.view %external_output[%offset] : buffer -> view<16xi32>
+    %copy = kernel.async.copy %source to %external {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<16xi32> to view<16xi32> -> kernel.async.token
+    %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+    channel.release %read : read<tile<16xi32>>
+  }
+  func.return
+}
+
+pipeline.def<kernel> @column(%column: index) run(%input: buffer, %output: buffer, %b0: channel<tile<16xi32>>, %b1: channel<tile<16xi32>>) {
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c5 = index.constant 5 : index
+  %parity = index.rem %column, %c2 : index
+  %capacity0 = index.add %parity, %c2 : index
+  %capacity1 = index.sub %c5, %capacity0 : index
+  %memory = pipeline.memory<workgroup>[%column, 1] : pool
+  %memory0 = pipeline.memory<workgroup>[%column, 2] : pool
+  %memory1 = pipeline.memory<workgroup>[%column, 4] : pool
+  %source = func.call @make_ring(%memory, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %a0 = func.call @make_ring(%memory0, %capacity0) : (pool, index) -> (channel<tile<16xi32>>)
+  %a1 = func.call @make_ring(%memory1, %capacity1) : (pool, index) -> (channel<tile<16xi32>>)
+  %output0 = func.call @make_ring(%memory0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %output1 = func.call @make_ring(%memory1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %stream0 = index.mul %column, %c2 : index
+  %stream1 = index.add %stream0, %c1 : index
+  pipeline.strand workers([%column, 2], [1, 1], [1, 1]) {
+    func.call @ingress(%input, %source, %column) : (buffer, channel<tile<16xi32>>, index)
+  }
+  pipeline.strand workers([%column, 2], [1, 1], [1, 1]) {
+    func.call @distribute2(%source, %a0, %a1) : (channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  }
+  pipeline.strand workers([%column, 2], [1, 1], [1, 1]) {
+    func.call @consume(%a0, %b0, %output0, %output, %stream0) : (channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, buffer, index)
+  }
+  pipeline.strand workers([%column, 4], [1, 1], [1, 1]) {
+    func.call @consume(%a1, %b1, %output1, %output, %stream1) : (channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, buffer, index)
+  }
+}
+
+pipeline.def<kernel> public retain target(@array_target) @multicast() run(%a_arg: buffer, %b_arg: buffer, %output_arg: buffer) {
+  %a_unique, %b_unique, %output_unique = buffer.assume.noalias %a_arg, %b_arg, %output_arg : buffer, buffer, buffer
+  %a, %b, %output = buffer.assume.alignment %a_unique, %b_unique, %output_unique {minimum_alignment = 64} : buffer, buffer, buffer
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c5 = index.constant 5 : index
+  %c6 = index.constant 6 : index
+  %c7 = index.constant 7 : index
+  %source_memory0 = pipeline.memory<workgroup>[0, 3] : pool
+  %source0 = func.call @make_ring(%source_memory0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %source_memory1 = pipeline.memory<workgroup>[1, 3] : pool
+  %source1 = func.call @make_ring(%source_memory1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory0_0 = pipeline.memory<workgroup>[0, 2] : pool
+  %b0_0 = func.call @make_ring(%memory0_0, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory0_1 = pipeline.memory<workgroup>[0, 4] : pool
+  %b0_1 = func.call @make_ring(%memory0_1, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c0](%a, %output, %b0_0, %b0_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory1_0 = pipeline.memory<workgroup>[1, 2] : pool
+  %b1_0 = func.call @make_ring(%memory1_0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory1_1 = pipeline.memory<workgroup>[1, 4] : pool
+  %b1_1 = func.call @make_ring(%memory1_1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c1](%a, %output, %b1_0, %b1_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory2_0 = pipeline.memory<workgroup>[2, 2] : pool
+  %b2_0 = func.call @make_ring(%memory2_0, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory2_1 = pipeline.memory<workgroup>[2, 4] : pool
+  %b2_1 = func.call @make_ring(%memory2_1, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c2](%a, %output, %b2_0, %b2_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory3_0 = pipeline.memory<workgroup>[3, 2] : pool
+  %b3_0 = func.call @make_ring(%memory3_0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory3_1 = pipeline.memory<workgroup>[3, 4] : pool
+  %b3_1 = func.call @make_ring(%memory3_1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c3](%a, %output, %b3_0, %b3_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory4_0 = pipeline.memory<workgroup>[4, 2] : pool
+  %b4_0 = func.call @make_ring(%memory4_0, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory4_1 = pipeline.memory<workgroup>[4, 4] : pool
+  %b4_1 = func.call @make_ring(%memory4_1, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c4](%a, %output, %b4_0, %b4_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory5_0 = pipeline.memory<workgroup>[5, 2] : pool
+  %b5_0 = func.call @make_ring(%memory5_0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory5_1 = pipeline.memory<workgroup>[5, 4] : pool
+  %b5_1 = func.call @make_ring(%memory5_1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c5](%a, %output, %b5_0, %b5_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory6_0 = pipeline.memory<workgroup>[6, 2] : pool
+  %b6_0 = func.call @make_ring(%memory6_0, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory6_1 = pipeline.memory<workgroup>[6, 4] : pool
+  %b6_1 = func.call @make_ring(%memory6_1, %c3) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c6](%a, %output, %b6_0, %b6_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  %memory7_0 = pipeline.memory<workgroup>[7, 2] : pool
+  %b7_0 = func.call @make_ring(%memory7_0, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  %memory7_1 = pipeline.memory<workgroup>[7, 4] : pool
+  %b7_1 = func.call @make_ring(%memory7_1, %c2) : (pool, index) -> (channel<tile<16xi32>>)
+  pipeline.compose @column[%c7](%a, %output, %b7_0, %b7_1) : [index](buffer, buffer, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
+    func.call @ingress(%b, %source0, %c0) : (buffer, channel<tile<16xi32>>, index)
+  }
+  pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
+    func.call @distribute8(%source0, %b0_0, %b1_0, %b2_0, %b3_0, %b4_0, %b5_0, %b6_0, %b7_0) : (channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  }
+  pipeline.strand workers([1, 2], [1, 1], [1, 1]) {
+    func.call @ingress(%b, %source1, %c1) : (buffer, channel<tile<16xi32>>, index)
+  }
+  pipeline.strand workers([1, 2], [1, 1], [1, 1]) {
+    func.call @distribute8(%source1, %b0_1, %b1_1, %b2_1, %b3_1, %b4_1, %b5_1, %b6_1, %b7_1) : (channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>, channel<tile<16xi32>>)
+  }
+}
+
+// The oracle has no channels, vector operations, DMA, or worker placement.
+func.def @reference(%a_buffer: buffer, %b_buffer: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %a = buffer.view %a_buffer[%origin] : buffer -> view<8x33x16xi32>
+  %b = buffer.view %b_buffer[%origin] : buffer -> view<2x33x16xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<8x2x33x16xi32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c33 = index.constant 33 : index
+  %c64 = index.constant 64 : index
+  %mask = scalar.constant 63 : i32
+  %c5_i32 = scalar.constant 5 : i32
+  %c13_i32 = scalar.constant 13 : i32
+  %c17_i32 = scalar.constant 17 : i32
+  scf.for %column = [%c0 to %c8 step %c1] {
+    scf.for %row = [%c0 to %c2 step %c1] {
+      scf.for %record = [%c0 to %c33 step %c1] {
+        %a_count = view.load %a[%column, %record, 0] : view<8x33x16xi32> -> i32
+        %b_count = view.load %b[%row, %record, 0] : view<2x33x16xi32> -> i32
+        %mixed = scalar.xori %a_count, %b_count : i32
+        %bounded = scalar.andi %mixed, %mask : i32
+        %count_index = index.cast %bounded : i32 to index
+        %positive = index.add %count_index, %c1 : index
+        %count = index.mul %positive, %c64 : index
+        %a_seed = view.load %a[%column, %record, 1] : view<8x33x16xi32> -> i32
+        %b_seed = view.load %b[%row, %record, 1] : view<2x33x16xi32> -> i32
+        %seed = scalar.xori %a_seed, %b_seed : i32
+        %state = scf.for %iteration = [%c0 to %count step %c1](%current = %seed : i32) -> (i32) {
+          %left = scalar.shli %current, %c13_i32 : i32
+          %first = scalar.xori %current, %left : i32
+          %right = scalar.shrui %first, %c17_i32 : i32
+          %second = scalar.xori %first, %right : i32
+          %last = scalar.shli %second, %c5_i32 : i32
+          %next = scalar.xori %second, %last : i32
+          scf.yield %next : i32
+        }
+        scf.for %word = [%c0 to %c16 step %c1] {
+          %left = view.load %a[%column, %record, %word] : view<8x33x16xi32> -> i32
+          %right = view.load %b[%row, %record, %word] : view<2x33x16xi32> -> i32
+          %sum = scalar.addi %left, %right : i32
+          %result = scalar.xori %sum, %state : i32
+          view.store %result, %destination[%column, %row, %record, %word] : i32, view<8x2x33x16xi32>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+func.def inline @fill_source(%buffer: buffer, %stream_count: index, %tag: i32, %a_side: i1) {
+  %origin = index.constant 0 : offset
+  %values = buffer.view %buffer[%origin] : buffer -> view<[%stream_count]x33x16xi32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c16 = index.constant 16 : index
+  %c33 = index.constant 33 : index
+  %c1_i32 = scalar.constant 1 : i32
+  %c3_i32 = scalar.constant 3 : i32
+  %c4_i32 = scalar.constant 4 : i32
+  %c5_i32 = scalar.constant 5 : i32
+  %c7_i32 = scalar.constant 7 : i32
+  %word_mask = scalar.constant -64 : i32
+  %stream_scale = scalar.constant -2048144789 : i32
+  %record_scale = scalar.constant -1028477387 : i32
+  %word_scale = scalar.constant -1640531527 : i32
+  scf.for %stream = [%c0 to %stream_count step %c1] {
+    %stream_index = index.cast %stream : index to i32
+    %next_stream = scalar.addi %stream_index, %c1_i32 : i32
+    %stream_code = scalar.muli %next_stream, %stream_scale : i32
+    scf.for %record = [%c0 to %c33 step %c1] {
+      %record_index = index.cast %record : index to i32
+      %next_record = scalar.addi %record_index, %c1_i32 : i32
+      %record_code = scalar.muli %next_record, %record_scale : i32
+      %selector = scf.if %a_side -> (i32) {
+        %triple = scalar.muli %record_index, %c3_i32 : i32
+        %sum = scalar.addi %stream_index, %triple : i32
+        %low = scalar.andi %sum, %c7_i32 : i32
+        %pair = scalar.addi %record_index, %stream_index : i32
+        %high = scalar.andi %pair, %c3_i32 : i32
+        %shifted = scalar.shli %high, %c4_i32 : i32
+        %value = scalar.ori %low, %shifted : i32
+        scf.yield %value : i32
+      } else {
+        %parity = scalar.andi %record_index, %c1_i32 : i32
+        %row = scalar.xori %stream_index, %parity : i32
+        %high = scalar.shli %row, %c3_i32 : i32
+        %scaled = scalar.muli %record_index, %c5_i32 : i32
+        %low = scalar.andi %scaled, %c7_i32 : i32
+        %value = scalar.ori %high, %low : i32
+        scf.yield %value : i32
+      }
+      scf.for %word = [%c0 to %c16 step %c1] {
+        %word_index = index.cast %word : index to i32
+        %next_word = scalar.addi %word_index, %c1_i32 : i32
+        %word_code = scalar.muli %next_word, %word_scale : i32
+        %first = scalar.xori %tag, %stream_code : i32
+        %second = scalar.xori %first, %record_code : i32
+        %value = scalar.xori %second, %word_code : i32
+        view.store %value, %values[%stream, %record, %word] : i32, view<[%stream_count]x33x16xi32>
+      }
+      %first_word = view.load %values[%stream, %record, 0] : view<[%stream_count]x33x16xi32> -> i32
+      %masked = scalar.andi %first_word, %word_mask : i32
+      %count_word = scalar.ori %masked, %selector : i32
+      view.store %count_word, %values[%stream, %record, 0] : i32, view<[%stream_count]x33x16xi32>
+    }
+  }
+  func.return
+}
+
+func.def @generate(%trial: index, %a: buffer, %b: buffer) {
+  %c2 = index.constant 2 : index
+  %c8 = index.constant 8 : index
+  %yes = scalar.constant true : i1
+  %no = scalar.constant false : i1
+  %trial_value = index.cast %trial : index to i32
+  %a_scale = scalar.constant 16777216 : i32
+  %b_scale = scalar.constant 2097152 : i32
+  %a_tag = scalar.constant -1610612736 : i32
+  %b_tag = scalar.constant -1342177280 : i32
+  %a_seed = scalar.muli %trial_value, %a_scale : i32
+  %b_seed = scalar.muli %trial_value, %b_scale : i32
+  %a_pattern = scalar.xori %a_tag, %a_seed : i32
+  %b_pattern = scalar.xori %b_tag, %b_seed : i32
+  func.call @fill_source(%a, %c8, %a_pattern, %yes) : (buffer, index, i32, i1)
+  func.call @fill_source(%b, %c2, %b_pattern, %no) : (buffer, index, i32, i1)
+  func.return
+}
+
+check.scenario @independent_receiver_credits {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %a_storage = check.generate.fill value(-91) : tensor<17024xi8>
+    %b_storage = check.generate.fill value(-91) : tensor<4352xi8>
+    %output_storage = check.generate.fill value(-52) : tensor<33920xi8>
+    %a = check.tensor.view %a_storage offset(64) : tensor<17024xi8> -> tensor<8x33x16xi32>
+    %b = check.tensor.view %b_storage offset(64) : tensor<4352xi8> -> tensor<2x33x16xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<33920xi8> -> tensor<8x2x33x16xi32>
+    check.generate<@generate>(%trial, %a, %b) : (index, tensor<8x33x16xi32>, tensor<2x33x16xi32>) -> ()
+    check.compare<@multicast, @reference>(%a, %b, %output) : (tensor<8x33x16xi32>, tensor<2x33x16xi32>, tensor<8x2x33x16xi32>) -> () {
+      check.expect.bitwise actual(%a_storage) expected(%a_storage) : tensor<17024xi8>
+      check.expect.bitwise actual(%b_storage) expected(%b_storage) : tensor<4352xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<33920xi8>
+    }
+  }
+  check.return
+}

@@ -44,6 +44,8 @@ loom_cc_test(
         ":rewriter",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/test",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

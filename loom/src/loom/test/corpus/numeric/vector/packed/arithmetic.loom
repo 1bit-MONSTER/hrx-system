@@ -296,3 +296,186 @@ check.scenario @packed_byte_shuffle_repeated_halves_values {
   }
   check.return
 }
+
+// Transpose preserves every BF16 payload, including signaling NaNs and signed
+// zero. Each invocation processes a bounded batch of independent 8x8 tiles.
+func.def @transpose_bfloat_tiles(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %input_view = buffer.view %source[%origin] : buffer -> view<32x8x8xbf16>
+  %output_view = buffer.view %destination[%origin] : buffer -> view<32x8x8xbf16>
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  scf.for %tile = [%begin to %end step %step] {
+    %values = vector.load %input_view[%tile, 0, 0] : view<32x8x8xbf16> -> vector<8x8xbf16>
+    %transposed = vector.transpose<[1, 0]> %values : vector<8x8xbf16> -> vector<8x8xbf16>
+    vector.store %transposed, %output_view[%tile, 0, 0] : vector<8x8xbf16>, view<32x8x8xbf16>
+  }
+  func.return
+}
+
+func.def @transpose_bfloat_tiles_reference(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<32x8x8xi16>
+  %destination = buffer.view %output[%origin] : buffer -> view<32x8x8xi16>
+  %begin = index.constant 0 : index
+  %tiles = index.constant 32 : index
+  %side = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %tile = [%begin to %tiles step %step] {
+    scf.for %row = [%begin to %side step %step] {
+      scf.for %column = [%begin to %side step %step] {
+        %bits = view.load %source[%tile, %row, %column] : view<32x8x8xi16> -> i16
+        view.store %bits, %destination[%tile, %column, %row] : i16, view<32x8x8xi16>
+      }
+    }
+  }
+  func.return
+}
+
+// Thirty-two batches enumerate every 16-bit payload; a final batch rotates
+// IEEE boundary patterns through every tile position. The second pass permutes
+// the complete domain and reverses the boundary pattern order. A third pass
+// restores the original values after the changed inputs.
+global.rodata.def @transpose_bfloat_edges = align(2) bytes("00000080010001807f007f8080008080803f80bfc03fc0bf7f7f7fff807f80ff817f81ffc17fc1ff803e80be004000c034127856bc9af0de5555aaaa68245713")
+
+func.def @generate_bfloat_transpose(%trial: index, %input: buffer) {
+  %origin = index.constant 0 : offset
+  %destination = buffer.view %input[%origin] : buffer -> view<2048xi16>
+  %edge_storage = global.load @transpose_bfloat_edges : buffer
+  %edges = buffer.view %edge_storage[%origin] : buffer -> view<32xi16>
+  %begin = index.constant 0 : index
+  %end = index.constant 2048 : index
+  %step = index.constant 1 : index
+  %phase_length = index.constant 33 : index
+  %phase = index.div %trial, %phase_length : index
+  %batch = index.rem %trial, %phase_length : index
+  %changed = index.cmp eq, %phase, %step : index
+  %edge_count = index.constant 32 : index
+  %edge_last = index.constant 31 : index
+  %tile_width = index.constant 64 : index
+  %is_exhaustive = index.cmp ult, %batch, %edge_count : index
+  %batch_base = index.mul %batch, %end : index
+  %multiplier = scalar.constant 4051 : i32
+  %bias = scalar.constant 40503 : i32
+  scf.for %lane = [%begin to %end step %step] {
+    %value = scf.if %is_exhaustive -> (i16) {
+      %position = index.add %batch_base, %lane : index
+      %word = index.cast %position : index to i32
+      %product = scalar.muli %word, %multiplier : i32
+      %permuted = scalar.addi %product, %bias : i32
+      %selected = scf.select %changed, %permuted, %word : i32
+      %bits = scalar.trunci %selected : i32 to i16
+      scf.yield %bits : i16
+    } else {
+      %rotation = index.div %lane, %tile_width : index
+      %position = index.add %rotation, %lane : index
+      %edge = index.rem %position, %edge_count : index
+      %reversed = index.sub %edge_last, %edge : index
+      %selected = scf.select %changed, %reversed, %edge : index
+      %bits = view.load %edges[%selected] : view<32xi16> -> i16
+      scf.yield %bits : i16
+    }
+    view.store %value, %destination[%lane] : i16, view<2048xi16>
+  }
+  func.return
+}
+
+check.scenario @bfloat_transpose_all_bits {
+  check.trial[99](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(-11309) : tensor<2112xi16>
+    %input = check.tensor.view %input_storage offset(64) : tensor<2112xi16> -> tensor<2048xi16>
+    check.generate<@generate_bfloat_transpose>(%trial, %input) : (index, tensor<2048xi16>) -> ()
+    %output_storage = check.generate.fill value(23130) : tensor<2112xi16>
+    %output = check.tensor.view %output_storage offset(64) : tensor<2112xi16> -> tensor<2048xi16>
+    check.compare<@transpose_bfloat_tiles, @transpose_bfloat_tiles_reference>(%input, %output) : (tensor<2048xi16>, tensor<2048xi16>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<2112xi16>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<2112xi16>
+    }
+  }
+  check.return
+}
+
+// Rectangular byte and predicate transposes exercise the same lane map through
+// distinct representations. Seven input patterns encode every lane ordinal.
+func.def @transpose_byte_predicates(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %predicate_origin = index.constant 128 : offset
+  %input_view = buffer.view %source[%origin] : buffer -> view<8x16xi8>
+  %ordinary_output = buffer.view %destination[%origin] : buffer -> view<16x8xi8>
+  %predicate_output = buffer.view %destination[%predicate_origin] : buffer -> view<16x8xi8>
+  %values = vector.load %input_view[0, 0] : view<8x16xi8> -> vector<8x16xi8>
+  %ordinary = vector.transpose<[1, 0]> %values : vector<8x16xi8> -> vector<16x8xi8>
+  vector.store %ordinary, %ordinary_output[0, 0] : vector<16x8xi8>, view<16x8xi8>
+  %c0 = vector.constant 0 : vector<8x16xi8>
+  %predicates = vector.cmpi ne, %values, %c0 : vector<8x16xi8> -> vector<8x16xi1>
+  %transposed = vector.transpose<[1, 0]> %predicates : vector<8x16xi1> -> vector<16x8xi1>
+  %false_bytes = vector.constant 0 : vector<16x8xi8>
+  %true_bytes = vector.constant 1 : vector<16x8xi8>
+  %bytes = vector.select %transposed, %true_bytes, %false_bytes : vector<16x8xi8>
+  vector.store %bytes, %predicate_output[0, 0] : vector<16x8xi8>, view<16x8xi8>
+  func.return
+}
+
+func.def @generate_transpose_lane_bits(%trial: index, %input: buffer) {
+  %origin = index.constant 0 : offset
+  %destination = buffer.view %input[%origin] : buffer -> view<128xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %shift = index.cast %trial : index to i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %bias = scalar.constant 129 : i32
+  %mask = scalar.shli %c1, %shift : i32
+  %payload = scalar.addi %bias, %shift : i32
+  scf.for %lane = [%begin to %end step %step] {
+    %word = index.cast %lane : index to i32
+    %bit = scalar.andi %word, %mask : i32
+    %condition = scalar.cmpi ne, %bit, %c0 : i32
+    %value = scf.select %condition, %payload, %c0 : i32
+    %byte = scalar.trunci %value : i32 to i8
+    view.store %byte, %destination[%lane] : i8, view<128xi8>
+  }
+  func.return
+}
+
+func.def @transpose_byte_predicates_reference(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %predicate_origin = index.constant 128 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<8x16xi8>
+  %ordinary = buffer.view %output[%origin] : buffer -> view<16x8xi8>
+  %predicates = buffer.view %output[%predicate_origin] : buffer -> view<16x8xi8>
+  %begin = index.constant 0 : index
+  %rows = index.constant 8 : index
+  %columns = index.constant 16 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i8
+  scf.for %row = [%begin to %rows step %step] {
+    scf.for %column = [%begin to %columns step %step] {
+      %value = view.load %source[%row, %column] : view<8x16xi8> -> i8
+      %predicate = scalar.cmpi ne, %value, %c0 : i8
+      %byte = scalar.extui %predicate : i1 to i8
+      view.store %value, %ordinary[%column, %row] : i8, view<16x8xi8>
+      view.store %byte, %predicates[%column, %row] : i8, view<16x8xi8>
+    }
+  }
+  func.return
+}
+
+check.scenario @byte_predicate_transpose_values {
+  check.trial[7](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(-113) : tensor<256xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<256xi8> -> tensor<128xi8>
+    check.generate<@generate_transpose_lane_bits>(%trial, %input) : (index, tensor<128xi8>) -> ()
+    %output_storage = check.generate.fill value(90) : tensor<384xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.compare<@transpose_byte_predicates, @transpose_byte_predicates_reference>(%input, %output) : (tensor<128xi8>, tensor<256xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<256xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<384xi8>
+    }
+  }
+  check.return
+}

@@ -36,7 +36,7 @@ typedef struct loom_value_fact_vector_partition_component_t {
   uint32_t lane_count;
 } loom_value_fact_vector_partition_component_t;
 
-// Immutable exact component tuple and regular packet snapshot retained by the
+// Exact component tuple and regular packet snapshot retained by the
 // fact table. The two views may use different component widths: reductions
 // consume exact leaves while packet materialization consumes the coarsest
 // regular authored tuple available at the producer.
@@ -85,8 +85,10 @@ iree_status_t loom_value_fact_table_define_vector_partition(
     loom_value_fact_vector_partition_t partition, bool* inout_changed);
 
 // Returns the retained partition, or an empty record when none is available.
-// Both component views borrow immutable fact-table storage until the populated
-// scope is cleared. This is an indexed query and does not inspect source IR.
+// Both component views borrow fact-table storage until the populated scope is
+// cleared. Full SSA replacement updates their value IDs in place. A query must
+// be repeated after erasure, which can withdraw either view independently.
+// This is an indexed query and does not inspect source IR.
 loom_value_fact_vector_partition_t loom_value_fact_table_query_vector_partition(
     const loom_value_fact_table_t* table, loom_value_id_t value_id);
 
@@ -100,6 +102,20 @@ iree_status_t loom_value_fact_table_forward_vector_partition(
 // Withdraws a partition when its producer is invalidated, without allocating,
 // and returns whether a partition was present.
 bool loom_value_fact_table_clear_vector_partition(
+    loom_value_fact_table_t* table, loom_value_id_t value_id);
+
+// Retargets retained component references after full SSA replacement. Only
+// references indexed under |old_value| are visited; tuples shared by aliases
+// are updated once. Both values have the same type. Allocation is needed only
+// to grow the value index.
+iree_status_t loom_value_fact_table_replace_vector_partition_value(
+    loom_value_fact_table_t* table, loom_value_id_t old_value,
+    loom_value_id_t new_value);
+
+// Withdraws exact or snapshot views referencing a value whose definition or
+// type is no longer available, and clears that value's own partition. Other
+// views and aliases whose components remain live retain their facts.
+void loom_value_fact_table_invalidate_vector_partition_value(
     loom_value_fact_table_t* table, loom_value_id_t value_id);
 
 #ifdef __cplusplus

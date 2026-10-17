@@ -10,8 +10,6 @@ load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
 
 package(
     default_visibility = [
-        "//experimental/xdna/benchmarks:__pkg__",
-        "//experimental/xdna/cts:__pkg__",
         "//libamdf/benchmarks:__subpackages__",
         "//libamdf/cts:__subpackages__",
     ],

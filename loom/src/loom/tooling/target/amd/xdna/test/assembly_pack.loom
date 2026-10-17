@@ -1,0 +1,121 @@
+func.decl @pack_blocks(%input: buffer, %input_origin: offset, %output: buffer, %output_origin: offset)
+
+aie2p.target<array> @npu
+
+pipeline.def<kernel> public retain target(@npu) @pack_signed_nibbles() run(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %input_bytes = index.constant 256 : offset
+  %output_bytes = index.constant 384 : offset
+  %capacity = index.constant 1 : index
+  %input_storage = buffer.alloca<workgroup> pool(%memory) align(64) %input_bytes : buffer
+  %output_storage = buffer.alloca<workgroup> pool(%memory) align(64) %output_bytes : buffer
+  %input_slots = buffer.view %input_storage[%origin] : buffer -> view<1x256xi8>
+  %output_slots = buffer.view %output_storage[%origin] : buffer -> view<1x384xi8>
+  %inputs = channel.bind<fifo> %input_slots, %capacity : view<1x256xi8>, index -> channel<tile<256xi8>>
+  %outputs = channel.bind<fifo> %output_slots, %capacity : view<1x384xi8>, index -> channel<tile<384xi8>>
+  pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
+    %external_input = buffer.view %source[%origin] : buffer -> view<256xi8>
+    %write, %incoming = channel.reserve %inputs : channel<tile<256xi8>> -> (write<tile<256xi8>>, view<256xi8>)
+    %ingress = kernel.async.copy %external_input to %incoming {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<256xi8> to view<256xi8> -> kernel.async.token
+    %ingress_group = kernel.async.group %ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %ingress_group {newer_groups = 0} : kernel.async.group
+    channel.publish %write : write<tile<256xi8>>
+    %read, %outgoing = channel.acquire %outputs : channel<tile<384xi8>> -> (read<tile<384xi8>>, view<384xi8>)
+    %external_output = buffer.view %destination[%origin] : buffer -> view<384xi8>
+    %egress = kernel.async.copy %outgoing to %external_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<384xi8> to view<384xi8> -> kernel.async.token
+    %egress_group = kernel.async.group %egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %egress_group {newer_groups = 0} : kernel.async.group
+    channel.release %read : read<tile<384xi8>>
+  }
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %read, %incoming = channel.acquire %inputs : channel<tile<256xi8>> -> (read<tile<256xi8>>, view<256xi8>)
+    %write, %outgoing = channel.reserve %outputs : channel<tile<384xi8>> -> (write<tile<384xi8>>, view<384xi8>)
+    func.call @pack_blocks(%input_storage, %origin, %output_storage, %origin) : (buffer, offset, buffer, offset)
+    channel.publish %write : write<tile<384xi8>>
+    channel.release %read : read<tile<256xi8>>
+  }
+}
+
+func.def @generate_pack_input(%trial: index, %input: buffer) {
+  %origin = index.constant 0 : offset
+  %destination = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %record = index.cast %trial : index to i32
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c37 = scalar.constant 37 : i32
+  %c128 = scalar.constant 128 : i32
+  %scaled = scalar.muli %record, %c2 : i32
+  %multiplier = scalar.addi %scaled, %c1 : i32
+  %record_bias = scalar.muli %record, %c37 : i32
+  %bias = scalar.subi %record_bias, %c128 : i32
+  scf.for %i = [%begin to %end step %step] {
+    %position = index.cast %i : index to i32
+    %product = scalar.muli %position, %multiplier : i32
+    %value = scalar.addi %product, %bias : i32
+    %byte = scalar.trunci %value : i32 to i8
+    view.store %byte, %destination[%i] : i8, view<256xi8>
+  }
+  func.return
+}
+
+func.def @pack_reference(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %destination = buffer.view %output[%origin] : buffer -> view<384xi8>
+  %begin = index.constant 0 : index
+  %output_length = index.constant 384 : index
+  %pairs = index.constant 128 : index
+  %step = index.constant 1 : index
+  %pair_width = index.constant 2 : index
+  %saturated_origin = index.constant 64 : index
+  %truncated_origin = index.constant 192 : index
+  %sentinel = scalar.constant -91 : i8
+  %lower = scalar.constant -8 : i8
+  %upper = scalar.constant 7 : i8
+  %mask = scalar.constant 15 : i8
+  %shift = scalar.constant 4 : i8
+  scf.for %i = [%begin to %output_length step %step] {
+    view.store %sentinel, %destination[%i] : i8, view<384xi8>
+  }
+  scf.for %i = [%begin to %pairs step %step] {
+    %first_position = index.mul %i, %pair_width : index
+    %second_position = index.add %first_position, %step : index
+    %first = view.load %source[%first_position] : view<256xi8> -> i8
+    %second = view.load %source[%second_position] : view<256xi8> -> i8
+    %first_above = scalar.maxsi %first, %lower : i8
+    %first_clamped = scalar.minsi %first_above, %upper : i8
+    %second_above = scalar.maxsi %second, %lower : i8
+    %second_clamped = scalar.minsi %second_above, %upper : i8
+    %first_nibble = scalar.andi %first_clamped, %mask : i8
+    %second_nibble = scalar.shli %second_clamped, %shift : i8
+    %saturated = scalar.ori %first_nibble, %second_nibble : i8
+    %first_bits = scalar.andi %first, %mask : i8
+    %second_bits = scalar.shli %second, %shift : i8
+    %truncated = scalar.ori %first_bits, %second_bits : i8
+    %saturated_position = index.add %saturated_origin, %i : index
+    %truncated_position = index.add %truncated_origin, %i : index
+    view.store %saturated, %destination[%saturated_position] : i8, view<384xi8>
+    view.store %truncated, %destination[%truncated_position] : i8, view<384xi8>
+  }
+  func.return
+}
+
+check.scenario @signed_nibble_packing {
+  check.trial[6](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(90) : tensor<384xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.generate<@generate_pack_input>(%trial, %input) : (index, tensor<256xi8>) -> ()
+    %output_storage = check.generate.fill value(-52) : tensor<512xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<512xi8> -> tensor<384xi8>
+    check.compare<@pack_signed_nibbles, @pack_reference>(%input, %output) : (tensor<256xi8>, tensor<384xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<384xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<512xi8>
+    }
+  }
+  check.return
+}

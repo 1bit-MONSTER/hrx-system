@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
-load("//loom/build_tools/bazel:defs.bzl", "loom_test", "loom_test_module")
+load("//loom/build_tools/bazel:defs.bzl", "loom_library", "loom_test", "loom_test_module")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test", "loom_check_test_suite")
 load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
@@ -24,6 +24,16 @@ exports_files([
     "packed_memory.cxx",
     "vector_lookup.cxx",
 ])
+
+loom_library(
+    name = "vector_memory_library",
+    srcs = [
+        "bitcast.cxx",
+        "buffer_selection.cxx",
+        "vector_copy.cxx",
+    ],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
 
 loom_check_test_suite(
     name = "compiler_test",

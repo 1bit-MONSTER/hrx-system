@@ -272,6 +272,7 @@ _ALL_PROFILE_XFAILS = {
     "numeric/integer/wide/address_comparison.loom:@mixed_width_index_comparisons": "SPIRV/026",
     "numeric/predicate/extract.loom:@predicate_extract": "TARGET/003",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_fma": "TARGET/001",
+    "numeric/vector/integer_widening.loom:@partial_widening": "TARGET/003",
 }
 
 _EXTENDED_TYPES_XFAILS = {
@@ -340,6 +341,7 @@ _NO_EXTENDED_TYPES_XFAILS = {
     "memory/packed/tails.loom:@stage_i8_7": "TARGET/003",
     "memory/storage/byte_banks.loom:@aligned_byte_increment": "TARGET/003",
     "memory/storage/byte_banks.loom:@byte_selected_storage": "TARGET/003",
+    "memory/storage/load_snapshot.loom:@capture_partial_byte_vectors": "TARGET/003",
     "memory/storage/workgroup.loom:@workgroup_bfloat_payload_exchange": "TARGET/003",
     "memory/storage/workgroup.loom:@workgroup_packet_exchange": "TARGET/003",
     "memory/view/strided_vectors.loom:@strided_vector_address_spaces": "TARGET/003",
@@ -435,6 +437,7 @@ _SPIRV_EXECUTION_XFAILS = {
     "function/call/overflow.loom:@mixed_overflow_call_values": "LOWERING/044",
     "function/call/overflow.loom:@overflow_call_values": "LOWERING/044",
     "function/call/spill.loom:@spill_values": "LOWERING/044",
+    "function/rodata.loom:@immutable_gather_values": "TARGET/001",
     "function/rodata.loom:@rodata_copy_values": "TARGET/001",
     "function/rodata.loom:@rodata_gather_values": "TARGET/001,TARGET/003",
     "function/rodata.loom:@rodata_values": "TARGET/001",
@@ -529,6 +532,7 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_f16_values": "TARGET/001",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_fma_values": "TARGET/001",
     "numeric/vector/f32.loom:@vector_f32_square_root_values": "LOWERING/036",
+    "numeric/vector/floating.loom:@bfloat_lookup_arithmetic_values": "TARGET/001",
     "numeric/vector/reductions.loom:@vector_bfloat_dot_reduction_values": "TARGET/001",
 }
 

@@ -304,3 +304,255 @@ check.scenario @vector_scale_f64_values {
   }
   check.return
 }
+
+// BF16 lookup results feed both lane operations and matrix arithmetic.
+// Sign operations preserve arbitrary payloads, including NaNs and subnormals.
+func.def @bfloat_lookup_arithmetic(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %rhs_offset = index.constant 16 : offset
+  %codes_offset = index.constant 32 : offset
+  %bits_offset = index.constant 48 : offset
+  %acc_offset = index.constant 64 : offset
+  %table_view = buffer.view %source[%origin] : buffer -> view<8xbf16>
+  %rhs_view = buffer.view %source[%rhs_offset] : buffer -> view<8xbf16>
+  %codes_view = buffer.view %source[%codes_offset] : buffer -> view<8xi16>
+  %bits_view = buffer.view %source[%bits_offset] : buffer -> view<8xbf16>
+  %acc_view = buffer.view %source[%acc_offset] : buffer -> view<4xf32>
+  %table = vector.load %table_view[0] : view<8xbf16> -> vector<8xbf16>
+  %rhs = vector.load %rhs_view[0] : view<8xbf16> -> vector<8xbf16>
+  %raw_codes = vector.load %codes_view[0] : view<8xi16> -> vector<8xi16>
+  %code_mask = vector.constant 7 : vector<8xi16>
+  %codes = vector.andi %raw_codes, %code_mask : vector<8xi16>
+  %bits = vector.load %bits_view[0] : view<8xbf16> -> vector<8xbf16>
+  %initial = vector.load %acc_view[0] : view<4xf32> -> vector<4xf32>
+  %decoded = vector.table.lookup %table[%codes] : vector<8xbf16>, vector<8xi16> -> vector<8xbf16>
+  %negative = vector.negf %bits : vector<8xbf16>
+  %absolute = vector.absf %bits : vector<8xbf16>
+  %copied = vector.copysignf %bits, %rhs : vector<8xbf16>
+  %last = vector.extract %table[7] : vector<8xbf16> -> bf16
+  %updated = vector.insert %last into %decoded[5] : bf16, vector<8xbf16>
+  %splat = vector.splat %last : vector<8xbf16>
+  %initial_zero = vector.constant 0.0 : vector<4xf32>
+  %dot_zero = vector.dot2f %decoded, %rhs, %initial_zero : vector<8xbf16>, vector<8xbf16>, vector<4xf32>
+  %dot_initial = vector.dot2f %decoded, %rhs, %initial : vector<8xbf16>, vector<8xbf16>, vector<4xf32>
+  // Volatile initialization keeps the guard writes before the partial stores.
+  // Each 16-byte result leaves 48 bytes of the same register-sized slot intact.
+  %guard_view = buffer.view %destination[%origin] : buffer -> view<128xi32>
+  %guard = vector.constant -1515870811 : vector<16xi32>
+  vector.store<volatile> %guard, %guard_view[0] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[16] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[32] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[48] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[64] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[80] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[96] : vector<16xi32>, view<128xi32>
+  vector.store<volatile> %guard, %guard_view[112] : vector<16xi32>, view<128xi32>
+  %bf16_results = buffer.view %destination[%origin] : buffer -> view<256xbf16>
+  %f32_results = buffer.view %destination[%origin] : buffer -> view<128xf32>
+  vector.store %decoded, %bf16_results[0] : vector<8xbf16>, view<256xbf16>
+  vector.store %negative, %bf16_results[32] : vector<8xbf16>, view<256xbf16>
+  vector.store %absolute, %bf16_results[64] : vector<8xbf16>, view<256xbf16>
+  vector.store %copied, %bf16_results[96] : vector<8xbf16>, view<256xbf16>
+  vector.store %updated, %bf16_results[128] : vector<8xbf16>, view<256xbf16>
+  vector.store %splat, %bf16_results[160] : vector<8xbf16>, view<256xbf16>
+  vector.store %dot_zero, %f32_results[96] : vector<4xf32>, view<128xf32>
+  vector.store %dot_initial, %f32_results[112] : vector<4xf32>, view<128xf32>
+  %m = index.constant 8 : index
+  %n = index.constant 8 : index
+  %k = index.constant 1 : index
+  %lhs_fragment = vector.fragment<lhs> %decoded shape [%m, %k] : vector<8xbf16>
+  %rhs_fragment = vector.fragment<rhs> %rhs shape [%k, %n] : vector<8xbf16>
+  %accumulator = vector.constant 0.0 : vector<64xf32>
+  %acc_fragment = vector.fragment<init> %accumulator shape [%m, %n] : vector<64xf32>
+  %product = vector.mma %lhs_fragment, %rhs_fragment, %acc_fragment : vector<8xbf16>, vector<8xbf16>, vector<64xf32>
+  %product_offset = index.constant 512 : offset
+  %product_view = buffer.view %destination[%product_offset] : buffer -> view<64xf32>
+  vector.store %product, %product_view[0] : vector<64xf32>, view<64xf32>
+  func.return
+}
+
+// Finite quarter-valued operands make products and sums exactly representable.
+// The remaining halfwords retain arbitrary bits except for eight rotated IEEE
+// edge records; these bits participate only in payload-preserving operations.
+global.rodata.def @bfloat_sign_edges = align(2) bytes("00000080807f80ffc17fa5ff01000180")
+
+func.def @generate_bfloat_lookup(%trial: index, %input: buffer) {
+  %record = index.assume %trial [range(%trial, 0, 63)] : index
+  %origin = index.constant 0 : offset
+  %words = buffer.view %input[%origin] : buffer -> view<64xi16>
+  %halves = buffer.view %input[%origin] : buffer -> view<64xbf16>
+  %floats = buffer.view %input[%origin] : buffer -> view<32xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c24 = index.constant 24 : index
+  %c40 = index.constant 40 : index
+  %mask = scalar.constant 127 : i16
+  %bias = scalar.constant 64 : i16
+  %quarter = scalar.constant 0.25 : f32
+  scf.for %i = [%c0 to %c16 step %c1] {
+    %raw = view.load %words[%i] : view<64xi16> -> i16
+    %bounded = scalar.andi %raw, %mask : i16
+    %signed = scalar.subi %bounded, %bias : i16
+    %wide = scalar.sitofp %signed : i16 to f32
+    %value = scalar.mulf %wide, %quarter : f32
+    %half = scalar.fptrunc %value : f32 to bf16
+    view.store %half, %halves[%i] : bf16, view<64xbf16>
+  }
+  scf.for %i = [%c0 to %c8 step %c1] {
+    %stride = index.mul %i, %c3 : index
+    %sum = index.add %record, %stride : index
+    %bounded = index.rem %sum, %c8 : index
+    %code = index.cast %bounded : index to i16
+    %position = index.add %i, %c16 : index
+    view.store %code, %words[%position] : i16, view<64xi16>
+  }
+  %directed = index.cmp ult, %record, %c8 : index
+  scf.if %directed {
+    %edge_buffer = global.load @bfloat_sign_edges : buffer
+    %edges = buffer.view %edge_buffer[%origin] : buffer -> view<8xi16>
+    scf.for %i = [%c0 to %c8 step %c1] {
+      %sum = index.add %record, %i : index
+      %source = index.rem %sum, %c8 : index
+      %bits = view.load %edges[%source] : view<8xi16> -> i16
+      %position = index.add %i, %c24 : index
+      view.store %bits, %words[%position] : i16, view<64xi16>
+    }
+  }
+  %initial_mask = scalar.constant 511 : i16
+  %initial_bias = scalar.constant 256 : i16
+  %initial_scale = scalar.constant 0.0625 : f32
+  scf.for %i = [%c0 to %c4 step %c1] {
+    %source = index.add %i, %c40 : index
+    %raw = view.load %words[%source] : view<64xi16> -> i16
+    %bounded = scalar.andi %raw, %initial_mask : i16
+    %signed = scalar.subi %bounded, %initial_bias : i16
+    %wide = scalar.sitofp %signed : i16 to f32
+    %value = scalar.mulf %wide, %initial_scale : f32
+    %position = index.add %i, %c16 : index
+    view.store %value, %floats[%position] : f32, view<32xf32>
+  }
+  func.return
+}
+
+// Scalar indexing and raw masks specify lane results independently of vector
+// lookup and sign lowering. Scalar f32 products specify dot and outer products.
+func.def @bfloat_lookup_oracle(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %words = buffer.view %input[%origin] : buffer -> view<64xi16>
+  %halves = buffer.view %input[%origin] : buffer -> view<64xbf16>
+  %floats = buffer.view %input[%origin] : buffer -> view<32xf32>
+  %guards = buffer.view %output[%origin] : buffer -> view<128xi32>
+  %bits_output = buffer.view %output[%origin] : buffer -> view<384xi16>
+  %float_output = buffer.view %output[%origin] : buffer -> view<192xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c5 = index.constant 5 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c24 = index.constant 24 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %c96 = index.constant 96 : index
+  %c112 = index.constant 112 : index
+  %c128 = index.constant 128 : index
+  %c160 = index.constant 160 : index
+  %guard = scalar.constant -1515870811 : i32
+  %sign = scalar.constant -32768 : i16
+  %magnitude = scalar.constant 32767 : i16
+  %initial_zero = scalar.constant 0.0 : f32
+  %code_mask = scalar.constant 7 : i16
+  %last = view.load %words[7] : view<64xi16> -> i16
+  scf.for %i = [%c0 to %c128 step %c1] {
+    view.store %guard, %guards[%i] : i32, view<128xi32>
+  }
+  scf.for %i = [%c0 to %c8 step %c1] {
+    %code_position = index.add %i, %c16 : index
+    %code = view.load %words[%code_position] : view<64xi16> -> i16
+    %bounded_code = scalar.andi %code, %code_mask : i16
+    %position = index.cast %bounded_code : i16 to index
+    %decoded = view.load %words[%position] : view<64xi16> -> i16
+    %rhs_position = index.add %i, %c8 : index
+    %rhs = view.load %words[%rhs_position] : view<64xi16> -> i16
+    %bits_position = index.add %i, %c24 : index
+    %bits = view.load %words[%bits_position] : view<64xi16> -> i16
+    %negative = scalar.xori %bits, %sign : i16
+    %absolute = scalar.andi %bits, %magnitude : i16
+    %rhs_sign = scalar.andi %rhs, %sign : i16
+    %copied = scalar.ori %absolute, %rhs_sign : i16
+    %replace = index.cmp eq, %i, %c5 : index
+    %updated = scf.select %replace, %last, %decoded : i16
+    %negative_position = index.add %i, %c32 : index
+    %absolute_position = index.add %i, %c64 : index
+    %copied_position = index.add %i, %c96 : index
+    %updated_position = index.add %i, %c128 : index
+    %splat_position = index.add %i, %c160 : index
+    view.store %decoded, %bits_output[%i] : i16, view<384xi16>
+    view.store %negative, %bits_output[%negative_position] : i16, view<384xi16>
+    view.store %absolute, %bits_output[%absolute_position] : i16, view<384xi16>
+    view.store %copied, %bits_output[%copied_position] : i16, view<384xi16>
+    view.store %updated, %bits_output[%updated_position] : i16, view<384xi16>
+    view.store %last, %bits_output[%splat_position] : i16, view<384xi16>
+    %left_half = view.load %halves[%position] : view<64xbf16> -> bf16
+    %left = scalar.extf %left_half : bf16 to f32
+    scf.for %j = [%c0 to %c8 step %c1] {
+      %right_position = index.add %j, %c8 : index
+      %right_half = view.load %halves[%right_position] : view<64xbf16> -> bf16
+      %right = scalar.extf %right_half : bf16 to f32
+      %product = scalar.mulf %left, %right : f32
+      %result = scalar.addf %product, %initial_zero : f32
+      %row = index.mul %i, %c8 : index
+      %element = index.add %row, %j : index
+      %output_position = index.add %element, %c128 : index
+      view.store %result, %float_output[%output_position] : f32, view<192xf32>
+    }
+  }
+  scf.for %i = [%c0 to %c4 step %c1] {
+    %pair = index.mul %i, %c2 : index
+    %dot = scf.for %j = [%c0 to %c2 step %c1](%sum = %initial_zero : f32) -> (f32) {
+      %lane = index.add %pair, %j : index
+      %code_position = index.add %lane, %c16 : index
+      %code = view.load %words[%code_position] : view<64xi16> -> i16
+      %bounded_code = scalar.andi %code, %code_mask : i16
+      %position = index.cast %bounded_code : i16 to index
+      %left_half = view.load %halves[%position] : view<64xbf16> -> bf16
+      %right_position = index.add %lane, %c8 : index
+      %right_half = view.load %halves[%right_position] : view<64xbf16> -> bf16
+      %left = scalar.extf %left_half : bf16 to f32
+      %right = scalar.extf %right_half : bf16 to f32
+      %product = scalar.mulf %left, %right : f32
+      %next = scalar.addf %sum, %product : f32
+      scf.yield %next : f32
+    }
+    %initial_position = index.add %i, %c16 : index
+    %initial = view.load %floats[%initial_position] : view<32xf32> -> f32
+    %accumulated = scalar.addf %dot, %initial : f32
+    %dot_position = index.add %i, %c96 : index
+    %accumulated_position = index.add %i, %c112 : index
+    view.store %dot, %float_output[%dot_position] : f32, view<192xf32>
+    view.store %accumulated, %float_output[%accumulated_position] : f32, view<192xf32>
+  }
+  func.return
+}
+
+check.scenario @bfloat_lookup_arithmetic_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-32768 to 32767) : tensor<128xi16>
+    %input = check.tensor.view %input_storage offset(64) : tensor<128xi16> -> tensor<64xi16>
+    check.generate<@generate_bfloat_lookup>(%trial, %input) : (index, tensor<64xi16>) -> ()
+    %output_storage = check.generate.fill value(-52) : tensor<896xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<896xi8> -> tensor<768xi8>
+    check.compare<@bfloat_lookup_arithmetic, @bfloat_lookup_oracle>(%input, %output) : (tensor<64xi16>, tensor<768xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<128xi16>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<896xi8>
+    }
+  }
+  check.return
+}

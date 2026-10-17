@@ -162,3 +162,230 @@ check.scenario @rodata_extent_values {
   }
   check.return
 }
+
+global.rodata.def @bf16_pairs = align(32) bytes("803f004040408040a040c040e040004110412041304140415041604170418041884190419841a041a841b041b841c041c841d041d841e041e841f041f8410042")
+
+// One immutable table is observed as packed BF16 pairs, individual halfwords,
+// and raw 64-bit values. Runtime masks define each lookup domain.
+func.def @immutable_gather(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %table = global.load @bf16_pairs : buffer
+  %origin = index.constant 0 : offset
+  %table_i32 = buffer.view %table[%origin] : buffer -> view<16xi32>
+  %table_bf16 = buffer.view %table[%origin] : buffer -> view<32xbf16>
+  %table_f64 = buffer.view %table[%origin] : buffer -> view<8xf64>
+  %source_i8 = buffer.view %source[%origin] : buffer -> view<256xi8>
+  %source_i32 = buffer.view %source[%origin] : buffer -> view<64xi32>
+  %source_bf16 = buffer.view %source[%origin] : buffer -> view<128xbf16>
+  %source_f32 = buffer.view %source[%origin] : buffer -> view<64xf32>
+  %destination_words = buffer.view %destination[%origin] : buffer -> view<64xi32>
+  %destination_bf16 = buffer.view %destination[%origin] : buffer -> view<96xbf16>
+  %destination_f32 = buffer.view %destination[%origin] : buffer -> view<48xf32>
+  %destination_f64 = buffer.view %destination[%origin] : buffer -> view<24xf64>
+  %raw_indices = vector.load %source_i32[0] : view<64xi32> -> vector<16xi32>
+  %index_mask = vector.constant 15 : vector<16xi32>
+  %indices = vector.andi %raw_indices, %index_mask : vector<16xi32>
+  %packed_values = vector.gather %table_i32[0][%indices] : view<16xi32>, vector<16xi32> -> vector<16xi32>
+  vector.store %packed_values, %destination_words[48] : vector<16xi32>, view<64xi32>
+  %values = vector.bitcast %packed_values : vector<16xi32> to vector<32xbf16>
+  %rhs = vector.load %source_bf16[64] : view<128xbf16> -> vector<32xbf16>
+  %initial = vector.load %source_f32[48] : view<64xf32> -> vector<16xf32>
+  %result = vector.dot2f %values, %rhs, %initial : vector<32xbf16>, vector<32xbf16>, vector<16xf32>
+  vector.store %result, %destination_f32[0] : vector<16xf32>, view<48xf32>
+
+  %raw_bf16_indices = vector.load %source_i8[64] : view<256xi8> -> vector<32xi8>
+  %bf16_index_mask = vector.constant 31 : vector<32xi8>
+  %bounded_bf16_indices = vector.andi %raw_bf16_indices, %bf16_index_mask : vector<32xi8>
+  %bf16_indices = vector.extui %bounded_bf16_indices : vector<32xi8> to vector<32xi32>
+  %bf16_values = vector.gather %table_bf16[0][%bf16_indices] : view<32xbf16>, vector<32xi32> -> vector<32xbf16>
+  vector.store %bf16_values, %destination_bf16[32] : vector<32xbf16>, view<96xbf16>
+
+  %raw_f64_indices = vector.load %source_i32[24] : view<64xi32> -> vector<8xi32>
+  %f64_index_mask = vector.constant 7 : vector<8xi32>
+  %f64_indices = vector.andi %raw_f64_indices, %f64_index_mask : vector<8xi32>
+  %f64_values = vector.gather %table_f64[0][%f64_indices] : view<8xf64>, vector<8xi32> -> vector<8xf64>
+  vector.store %f64_values, %destination_f64[16] : vector<8xf64>, view<24xf64>
+  func.return
+}
+
+func.def @immutable_gather_oracle(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %words = buffer.view %input[%origin] : buffer -> view<64xi32>
+  %halves = buffer.view %input[%origin] : buffer -> view<128xbf16>
+  %floats = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %results = buffer.view %output[%origin] : buffer -> view<48xf32>
+  %result_halves = buffer.view %output[%origin] : buffer -> view<128xbf16>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c24 = index.constant 24 : index
+  %c32 = index.constant 32 : index
+  %c48 = index.constant 48 : index
+  %c64 = index.constant 64 : index
+  %pair_mask = scalar.constant 15 : i32
+  %wide_mask = scalar.constant 7 : i32
+  %half_mask = scalar.constant 31 : i8
+  %c1_i32 = scalar.constant 1 : i32
+  %c2_i32 = scalar.constant 2 : i32
+  %c4_i32 = scalar.constant 4 : i32
+  // The table consists of consecutive integers 1..32; derive their values
+  // arithmetically so expected results do not reuse the device's table bytes.
+  scf.for %i = [%c0 to %c16 step %c1] {
+    %raw = view.load %words[%i] : view<64xi32> -> i32
+    %code = scalar.andi %raw, %pair_mask : i32
+    %pair = scalar.muli %code, %c2_i32 : i32
+    %left_integer = scalar.addi %pair, %c1_i32 : i32
+    %right_integer = scalar.addi %pair, %c2_i32 : i32
+    %left = scalar.uitofp %left_integer : i32 to f32
+    %right = scalar.uitofp %right_integer : i32 to f32
+    %lane = index.mul %i, %c2 : index
+    %packed_origin = index.constant 96 : index
+    %packed_left = index.add %packed_origin, %lane : index
+    %packed_right = index.add %packed_left, %c1 : index
+    %left_bits = scalar.fptrunc %left : f32 to bf16
+    %right_bits = scalar.fptrunc %right : f32 to bf16
+    view.store %left_bits, %result_halves[%packed_left] : bf16, view<128xbf16>
+    view.store %right_bits, %result_halves[%packed_right] : bf16, view<128xbf16>
+    %left_position = index.add %lane, %c64 : index
+    %right_position = index.add %left_position, %c1 : index
+    %left_half = view.load %halves[%left_position] : view<128xbf16> -> bf16
+    %right_half = view.load %halves[%right_position] : view<128xbf16> -> bf16
+    %left_rhs = scalar.extf %left_half : bf16 to f32
+    %right_rhs = scalar.extf %right_half : bf16 to f32
+    %left_product = scalar.mulf %left, %left_rhs : f32
+    %right_product = scalar.mulf %right, %right_rhs : f32
+    %initial_position = index.add %i, %c48 : index
+    %initial = view.load %floats[%initial_position] : view<64xf32> -> f32
+    %partial = scalar.addf %initial, %left_product : f32
+    %result = scalar.addf %partial, %right_product : f32
+    view.store %result, %results[%i] : f32, view<48xf32>
+  }
+  scf.for %i = [%c0 to %c32 step %c1] {
+    %source = index.add %i, %c64 : index
+    %raw = view.load %bytes[%source] : view<256xi8> -> i8
+    %code = scalar.andi %raw, %half_mask : i8
+    %wide = scalar.extui %code : i8 to i32
+    %integer = scalar.addi %wide, %c1_i32 : i32
+    %value = scalar.uitofp %integer : i32 to f32
+    %half = scalar.fptrunc %value : f32 to bf16
+    %destination = index.add %i, %c32 : index
+    view.store %half, %result_halves[%destination] : bf16, view<128xbf16>
+  }
+  scf.for %i = [%c0 to %c8 step %c1] {
+    %source = index.add %i, %c24 : index
+    %raw = view.load %words[%source] : view<64xi32> -> i32
+    %code = scalar.andi %raw, %wide_mask : i32
+    %first = scalar.muli %code, %c4_i32 : i32
+    scf.for %j = [%c0 to %c4 step %c1] {
+      %component = index.cast %j : index to i32
+      %ordinal = scalar.addi %first, %component : i32
+      %integer = scalar.addi %ordinal, %c1_i32 : i32
+      %value = scalar.uitofp %integer : i32 to f32
+      %half = scalar.fptrunc %value : f32 to bf16
+      %group = index.mul %i, %c4 : index
+      %lane = index.add %group, %j : index
+      %destination = index.add %lane, %c64 : index
+      view.store %half, %result_halves[%destination] : bf16, view<128xbf16>
+    }
+  }
+  func.return
+}
+
+global.rodata.def @gather_pair_indices = bytes("000102030405060708090a0b0c0d0e0f0f0e0d0c0b0a090807060504030201000007080f0007080f0007080f0007080f070806090f000e010b040c03050a020d")
+
+global.rodata.def @gather_half_indices = bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100000f101f000f101f000f101f000f101f000f101f000f101f000f101f000f101f0714010e1b0815020f1c091603101d0a1704111e0b1805121f0c190613000d1a")
+
+global.rodata.def @gather_wide_indices = bytes("0001020304050607070605040302010000030407000304070700050206010403")
+
+global.rodata.def @gather_rhs = align(2) bytes("803f00bfc0bf803e003f80be004080bf")
+
+func.def @generate_immutable_gather(%trial: index, %input: buffer) {
+  %record = index.assume %trial [range(%trial, 0, 3)] : index
+  %origin = index.constant 0 : offset
+  %pair_buffer = global.load @gather_pair_indices : buffer
+  %half_buffer = global.load @gather_half_indices : buffer
+  %wide_buffer = global.load @gather_wide_indices : buffer
+  %rhs_buffer = global.load @gather_rhs : buffer
+  %pair_indices = buffer.view %pair_buffer[%origin] : buffer -> view<4x16xi8>
+  %half_indices = buffer.view %half_buffer[%origin] : buffer -> view<4x32xi8>
+  %wide_indices = buffer.view %wide_buffer[%origin] : buffer -> view<4x8xi8>
+  %rhs_values = buffer.view %rhs_buffer[%origin] : buffer -> view<8xbf16>
+  %bytes = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %words = buffer.view %input[%origin] : buffer -> view<64xi32>
+  %halves = buffer.view %input[%origin] : buffer -> view<128xbf16>
+  %floats = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c24 = index.constant 24 : index
+  %c32 = index.constant 32 : index
+  %c48 = index.constant 48 : index
+  %c64 = index.constant 64 : index
+  %high_bits = scalar.constant 65536 : i32
+  %high_byte_bits = scalar.constant -96 : i8
+  %record_integer = index.cast %record : index to i32
+  %record_float = scalar.uitofp %record_integer : i32 to f32
+  %record_scale = scalar.constant 8.0 : f32
+  %initial_bias = scalar.constant -6.0 : f32
+  %lane_scale = scalar.constant 0.25 : f32
+  %scaled_record = scalar.mulf %record_float, %record_scale : f32
+  %initial_base = scalar.addf %scaled_record, %initial_bias : f32
+  scf.for %i = [%c0 to %c16 step %c1] {
+    %byte = view.load %pair_indices[%record, %i] : view<4x16xi8> -> i8
+    %code = scalar.extui %byte : i8 to i32
+    %raw = scalar.ori %code, %high_bits : i32
+    view.store %raw, %words[%i] : i32, view<64xi32>
+    %lane_integer = index.cast %i : index to i32
+    %lane_float = scalar.uitofp %lane_integer : i32 to f32
+    %lane_value = scalar.mulf %lane_float, %lane_scale : f32
+    %initial = scalar.addf %initial_base, %lane_value : f32
+    %position = index.add %i, %c48 : index
+    view.store %initial, %floats[%position] : f32, view<64xf32>
+  }
+  scf.for %i = [%c0 to %c32 step %c1] {
+    %code = view.load %half_indices[%record, %i] : view<4x32xi8> -> i8
+    %raw = scalar.ori %code, %high_byte_bits : i8
+    %position = index.add %i, %c64 : index
+    view.store %raw, %bytes[%position] : i8, view<256xi8>
+    %sum = index.add %record, %i : index
+    %source = index.rem %sum, %c8 : index
+    %rhs = view.load %rhs_values[%source] : view<8xbf16> -> bf16
+    view.store %rhs, %halves[%position] : bf16, view<128xbf16>
+  }
+  scf.for %i = [%c0 to %c8 step %c1] {
+    %byte = view.load %wide_indices[%record, %i] : view<4x8xi8> -> i8
+    %code = scalar.extui %byte : i8 to i32
+    %raw = scalar.ori %code, %high_bits : i32
+    %position = index.add %i, %c24 : index
+    view.store %raw, %words[%position] : i32, view<64xi32>
+  }
+  func.return
+}
+
+check.scenario @immutable_gather_values {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(-91) : tensor<384xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.generate<@generate_immutable_gather>(%trial, %input) : (index, tensor<256xi8>) -> ()
+    %output_storage = check.generate.fill value(-52) : tensor<384xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    %prefix = check.tensor.view %output_storage offset(0) : tensor<384xi8> -> tensor<64xi8>
+    %dot = check.tensor.view %output offset(0) : tensor<256xi8> -> tensor<16xf32>
+    %gathers_and_suffix = check.tensor.view %output_storage offset(128) : tensor<384xi8> -> tensor<256xi8>
+    check.compare<@immutable_gather, @immutable_gather_oracle>(%input, %output) : (tensor<256xi8>, tensor<256xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<384xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<64xi8>
+      check.expect.bitwise actual(%gathers_and_suffix) expected(%gathers_and_suffix) : tensor<256xi8>
+      // Native grouped dots need not match ordered f32 arithmetic. The bound
+      // is four f32 ULPs at the maximum absolute intermediate sum (< 256);
+      // every gathered bit is checked independently above.
+      check.expect.close actual(%dot) expected(%dot) atol(6.103515625e-05) rtol(0.0) nan(same) : tensor<16xf32>
+    }
+  }
+  check.return
+}

@@ -23,6 +23,9 @@ struct CtsMappedMemory {
 
   void Create(const amdf_api_t* api, amdf_memory_scope_t* scope,
               const amdf_memory_create_info_t& create_info);
+  // Maps the complete logical range of an already created or imported memory.
+  // The caller has transferred memory ownership into this object.
+  void Map(const amdf_api_t* api);
   // Requires all device uses to have completed. False stops cleanup of any
   // caller-owned source storage, which may still have native registrations.
   bool Release(const amdf_api_t* api);

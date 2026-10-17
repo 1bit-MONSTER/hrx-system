@@ -10,6 +10,20 @@
 iree_add_all_subdirs()
 
 if(LOOM_IMPORT_CXX)
+loom_module(
+  NAME
+    vector_memory_library
+  SRCS
+    "bitcast.cxx"
+    "buffer_selection.cxx"
+    "vector_copy.cxx"
+  MODE merge
+  OUTPUT_FORMAT bc
+  STRICT_DEPS
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
 loom_check_test_suite(
   NAME
     compiler_test

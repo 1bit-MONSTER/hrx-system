@@ -244,7 +244,7 @@ loom_kernel_binary(name="program", srcs=["program.loom"], deps=[":support"], tar
                     "//loom/src/loom/tools/loom-compile": ["loom::tools::loom-compile"],
                 },
             ),
-            build_dir="/repo/experimental/xdna/cts",
+            build_dir="/repo/consumer",
             repo_root="/repo",
             condition_mappings=self.project.condition_mappings,
         )

@@ -11,6 +11,7 @@
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/base/internal/shm.h"
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/amd/registration/driver_module.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32.h"
@@ -1655,9 +1656,9 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
       iree_hal_executable_release(&cpu_executable_->base);
     }
     XdnaNativeTest::TearDown();
-    if (registered_storage_) {
+    if (registered_storage_.base) {
       EXPECT_EQ(registration_release_count_, 1);
-      iree_allocator_free_aligned(iree_allocator_system(), registered_storage_);
+      iree_shm_close(&registered_storage_);
     }
     iree_hal_device_release(cpu_device_);
     iree_async_proactor_pool_release(cpu_proactor_pool_);
@@ -1786,22 +1787,30 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     iree_hal_pool_import_requirements_t requirements;
     ASSERT_TRUE(iree_hal_pool_query_import_requirements(
         memory_pool_, storage_class, &requirements));
-    registered_storage_length_ =
+    const iree_host_size_t byte_length =
         ((iree_max(8192, requirements.min_byte_length) - 1) /
              requirements.byte_length_granularity +
          1) *
         requirements.byte_length_granularity;
-    IREE_ASSERT_OK(iree_allocator_malloc_aligned(
-        iree_allocator_system(), registered_storage_length_,
-        iree_max(64, requirements.base_alignment), 0, &registered_storage_));
-    memset(registered_storage_, 0xCC, registered_storage_length_);
+    iree_shm_mapping_t originator = {};
+    IREE_ASSERT_OK(iree_shm_create(nullptr, byte_length, &originator));
+    memset(originator.base, 0xCC, originator.size);
+    iree_status_t status = iree_shm_open_handle(
+        originator.handle, originator.size, &registered_storage_);
+    // Neither the creator's mapping nor its handle participates in native
+    // registration or subsequent CPU/NPU work on the independent mapping.
+    iree_shm_close(&originator);
+    IREE_ASSERT_OK(status);
+    ASSERT_EQ(reinterpret_cast<uintptr_t>(registered_storage_.base) %
+                  requirements.base_alignment,
+              0u);
     iree_hal_external_storage_t storage = {
         .storage_class = storage_class,
     };
-    storage.payload.host_pointer = registered_storage_;
-    storage.byte_length = registered_storage_length_;
+    storage.payload.host_pointer = registered_storage_.base;
+    storage.byte_length = registered_storage_.size;
     storage.maintenance_range =
-        iree_hal_make_buffer_range(0, registered_storage_length_);
+        iree_hal_make_buffer_range(0, registered_storage_.size);
     storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
     storage.release = +[](void* user_data, iree_hal_external_storage_class_t,
                           iree_hal_external_storage_payload_t) {
@@ -1820,8 +1829,8 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     IREE_ASSERT_OK(iree_hal_buffer_export(
         imported, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
         storage_class, &storage, &range));
-    EXPECT_EQ(storage.payload.host_pointer, registered_storage_);
-    EXPECT_EQ(storage.byte_length, registered_storage_length_);
+    EXPECT_EQ(storage.payload.host_pointer, registered_storage_.base);
+    EXPECT_EQ(storage.byte_length, registered_storage_.size);
     EXPECT_EQ(storage.release, nullptr);
     EXPECT_EQ(range.byte_offset, kBytes);
     EXPECT_EQ(range.byte_length, 5 * kBytes);
@@ -1844,10 +1853,9 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   CpuAddExecutable* cpu_executable_ = nullptr;
   // Recorded programs retained across three changing-input replays.
   std::vector<iree_hal_command_buffer_t*> commands_;
-  // Application allocation retained until every native attachment is released.
-  void* registered_storage_ = nullptr;
-  // Caller extent satisfying the captured native registration requirements.
-  iree_host_size_t registered_storage_length_ = 0;
+  // Independently opened host mapping retained through native attachment
+  // release.
+  iree_shm_mapping_t registered_storage_ = {};
   // Original imported transport callback, independent of borrowed reimports.
   int registration_release_count_ = 0;
 };
@@ -2019,11 +2027,11 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
     previous = downloaded;
   }
   if (registered) {
-    const auto* bytes = static_cast<const uint8_t*>(registered_storage_);
+    const auto* bytes = static_cast<const uint8_t*>(registered_storage_.base);
     for (size_t i = 0; i < kBytes; ++i) {
       EXPECT_EQ(bytes[i], 0xCC) << i;
     }
-    for (size_t i = 6 * kBytes; i < registered_storage_length_; ++i) {
+    for (size_t i = 6 * kBytes; i < registered_storage_.size; ++i) {
       EXPECT_EQ(bytes[i], 0xCC) << i;
     }
     EXPECT_EQ(registration_release_count_, 0);

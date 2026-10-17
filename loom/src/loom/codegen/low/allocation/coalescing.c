@@ -1133,39 +1133,46 @@ loom_low_allocation_coalescing_prepare_concat_reservation_sources(
                               "uint16_t");
     }
     ++out_sources->ignored_value_count;
-    if (context->target_constraints->fixed_value_count == 0 ||
-        out_sources->fixed_constraint.kind ==
-            LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_INCOMPATIBLE) {
+    if (out_sources->source_constraint.kind ==
+        LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_INCOMPATIBLE) {
       continue;
     }
-    const loom_low_allocation_resolved_fixed_value_t* fixed =
-        loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
-            context->target_constraints, relation->source_ordinal);
-    if (fixed == NULL) {
+    // Ignoring a source's interference is safe only when the reservation
+    // preserves its committed location, including repeated source operands.
+    const loom_low_allocation_assignment_t* source_assignment =
+        loom_low_allocation_coalescing_current_assignment_for_value_ordinal(
+            context, relation->source_ordinal);
+    if (source_assignment == NULL) {
+      const loom_low_allocation_resolved_fixed_value_t* fixed =
+          loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+              context->target_constraints, relation->source_ordinal);
+      source_assignment = fixed != NULL ? &fixed->assignment : NULL;
+    }
+    if (source_assignment == NULL) {
       continue;
     }
     if (result_is_explicit) {
-      out_sources->fixed_constraint.kind =
-          LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_EXPLICIT_CANDIDATE;
+      out_sources->source_constraint.kind =
+          LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_EXPLICIT_CANDIDATE;
       continue;
     }
     uint32_t result_location_base = 0;
     if (!loom_low_allocation_storage_find_subrange_alias_location(
             descriptor_set, result_reg_class_id, result_location_kind,
             result_interval->unit_count, relation->result_unit_offset,
-            &fixed->assignment, relation->source_unit_offset,
+            source_assignment, relation->source_unit_offset,
             relation->unit_count, &result_location_base) ||
-        (out_sources->fixed_constraint.kind ==
-             LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_LINEAR_LOCATION &&
-         out_sources->fixed_constraint.linear_result_location_base !=
+        (out_sources->source_constraint.kind ==
+             LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_LINEAR_LOCATION &&
+         out_sources->source_constraint.linear_result_location_base !=
              result_location_base)) {
-      out_sources->fixed_constraint.kind =
-          LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_INCOMPATIBLE;
+      out_sources->source_constraint.kind =
+          LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_INCOMPATIBLE;
       continue;
     }
-    out_sources->fixed_constraint.kind =
-        LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_LINEAR_LOCATION;
-    out_sources->fixed_constraint.linear_result_location_base =
+    out_sources->source_constraint.kind =
+        LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_LINEAR_LOCATION;
+    out_sources->source_constraint.linear_result_location_base =
         result_location_base;
   }
   loom_value_id_t* ignored_value_ids = inline_ignored_value_ids;

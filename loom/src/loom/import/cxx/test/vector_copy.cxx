@@ -29,14 +29,7 @@ typedef unsigned U16 __attribute__((vector_size(64)));
   }
   for (unsigned block = 0; block < count; ++block) {
     loom::assume(block < 20u);
-#if SCALAR_COPY
-    for (unsigned lane = 0; lane < 16u; ++lane) {
-      output[(block * destination_stride + destination_origin) * 16u + lane] =
-          input[16u + block * source_stride * 16u + lane];
-    }
-#else
     destination[block * destination_stride + destination_origin] =
         source[block * source_stride];
-#endif
   }
 }

@@ -55,6 +55,42 @@
           "\"dropped_record_count\":0"
         ]
       }
+    },
+    {
+      "name": "owned channel publication and retirement survive repeated HAL invocations",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/channel_lifetime.loom",
+          "--device=xdna"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"scenario_count\":7,",
+          "\"trial_count\":21,",
+          "\"failed_trial_count\":0",
+          "\"skipped_scenario_count\":0"
+        ]
+      }
+    },
+    {
+      "name": "DMA descriptors and completion credits reuse independent retired lifetimes",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/dma_reuse.loom",
+          "--device=xdna"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"scenario_count\":2,",
+          "\"trial_count\":6,",
+          "\"failed_trial_count\":0",
+          "\"skipped_scenario_count\":0"
+        ]
+      }
     }
   ]
 }

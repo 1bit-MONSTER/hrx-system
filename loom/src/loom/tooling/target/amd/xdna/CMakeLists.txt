@@ -49,6 +49,8 @@ iree_execution_test_suite(
     "iree-benchmark-loom=loom::tools::iree-benchmark-loom"
     "iree-test-loom=loom::tools::iree-test-loom"
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_lifetime.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/dma_reuse.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom"
   LABELS
     "iree-run-requirement=libamdf.resource.xdna"
@@ -70,6 +72,152 @@ iree_execution_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_fanout.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_sram.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/finite_ingress.loom"
+  LABELS
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+loom_test_module(
+  NAME
+    multicast_execution_test_module
+  SRCS
+    "test/channel_multicast.loom"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    multicast_execution_test_execute_xdna_eight_columns_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::multicast_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna://0?columns=8"
+  LABELS
+    "manual"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_eight_columns"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+loom_test_module(
+  NAME
+    dma_wrap_execution_test_module
+  SRCS
+    "test/dma_wrap.loom"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    dma_wrap_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::dma_wrap_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+loom_generated_file(
+  NAME
+    temporal_fold_image_npu4
+  GENERATOR
+    loom::tools::loom-compile
+  OUTPUT
+    "temporal_fold_npu4.xdna"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/temporal_fold.loom"
+    "--target=amd.xdna.aie2p:amd.xdna.strix.17f0_10"
+  INPUTS
+    "test/temporal_fold.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+loom_generated_file(
+  NAME
+    temporal_fold_image_npu5
+  GENERATOR
+    loom::tools::loom-compile
+  OUTPUT
+    "temporal_fold_npu5.xdna"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/temporal_fold.loom"
+    "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11"
+  INPUTS
+    "test/temporal_fold.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_cc_binary(
+  NAME
+    temporal_fold_test_bin
+  SRCS
+    "temporal_fold_test.cc"
+  DEPS
+    iree::base
+    iree::base::tooling::flags
+    iree::hal
+    iree::hal::cts::util::registry
+    iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
+    iree::hal::drivers::amd::driver
+    iree::testing::gtest
+  TESTONLY
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+iree_native_test(
+  NAME
+    "temporal_fold_execution_test"
+  ARGS
+    "--executable_file_npu4={{${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu4.xdna}}"
+    "--executable_file_npu5={{${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu5.xdna}}"
+  SRC
+    ::temporal_fold_test_bin
+  DATA
+    "${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu4.xdna"
+    "${CMAKE_CURRENT_BINARY_DIR}/temporal_fold_npu5.xdna"
   LABELS
     "iree-run-requirement=libamdf.resource.xdna"
     "runtime-resource=amd-xdna"
@@ -122,6 +270,204 @@ iree_native_test(
   LABELS
     "loom-check"
 )
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    assembly_pack_execution_test_module
+  SRCS
+    "test/assembly_pack.cxx"
+    "test/assembly_pack.loom"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    assembly_pack_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::assembly_pack_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    bitcast_execution_test_module
+  SRCS
+    "test/bitcast.loom"
+  LIBRARIES
+    "loom::import::cxx::test::vector_memory_library"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    bitcast_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::bitcast_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    buffer_selection_execution_test_module
+  SRCS
+    "test/buffer_selection.loom"
+  LIBRARIES
+    "loom::import::cxx::test::vector_memory_library"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    buffer_selection_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::buffer_selection_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_copy_execution_test_module
+  SRCS
+    "test/vector_copy.loom"
+  LIBRARIES
+    "loom::import::cxx::test::vector_memory_library"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    vector_copy_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::vector_copy_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    packed_memory_execution_test_module
+  SRCS
+    "test/packed_memory.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_memory.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    packed_memory_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::packed_memory_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
 endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

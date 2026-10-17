@@ -533,8 +533,8 @@ or family selector and applies it to both the runtime HAL target set and Loom's
 trees, then run the union of tests that require the AMDGPU HAL at build time or
 an AMD GPU at execution time.
 
-XDNA commands configure an XDNA-only libamdf and include its CTS and the
-experimental ELF execution consumers. They need the native XDNA driver and
+XDNA commands configure an XDNA-only libamdf and include its CTS, the XDNA HAL
+CTS, and Loom's native execution corpus. They need the native XDNA driver and
 access to the assigned NPU, but not ROCr, XRT, or an AMDGPU device compiler.
 Both Bazel and CMake select the existing XDNA resource metadata and serialize
 native tests through the shared AMD resource group. The commands without the
@@ -546,8 +546,11 @@ test is not hardware qualification.
 The Linux and Windows **AMD RDNA+XDNA** Bazel workflows exercise the native
 client configuration through `iree-bazel-amd-client[-asan]`. Both libamdf
 families are compiled, including their tests. Both workflows run libamdf's
-host-only coverage, XDNA CTS, and ELF execution consumers from `//libamdf/...`
-and `//experimental/xdna/...`.
+host-only coverage and XDNA CTS from `//libamdf/...`, HAL coverage from
+`//runtime/src/iree/hal/drivers/amd/...`, and Loom execution coverage from
+`//loom/target/amd/xdna/...` and `//loom/src/loom/tooling/target/amd/xdna/...`.
+Loom's shared semantic scenarios and target-specific channel, DMA, and fold
+cases execute through the production HAL.
 
 Linux runs with ASAN on the gfx1150 NPU pool and requires access to the assigned
 `/dev/accel/accel0`. XDNA is its only admitted hardware test resource; GPU tests

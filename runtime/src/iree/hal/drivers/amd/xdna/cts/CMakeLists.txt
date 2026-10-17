@@ -49,6 +49,7 @@ iree_cc_test(
     iree::async
     iree::async::util::proactor_pool
     iree::base
+    iree::base::internal::shm
     iree::hal
     iree::hal::cts::util::test_base
     iree::hal::drivers::amd::registration

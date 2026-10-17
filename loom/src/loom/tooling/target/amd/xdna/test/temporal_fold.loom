@@ -1,4 +1,5 @@
 aie2p.target<array> @array_target
+
 aie2p.target<core> @core_target
 
 low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_first_copy() asm {

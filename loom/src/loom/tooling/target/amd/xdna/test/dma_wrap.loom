@@ -1,0 +1,497 @@
+// Every physical wrap field is exercised at its largest nonzero value.
+// Separate gather and scatter slots keep each transfer's input independent.
+aie2p.target<array> @npu
+
+pipeline.def<kernel> @local_wrap_dimension0(%row: index, %wrap: index) run(%input_arg: buffer, %gather_arg: buffer, %scatter_arg: buffer) {
+  %input_unique, %gather_unique, %scatter_unique = buffer.assume.noalias %input_arg, %gather_arg, %scatter_arg : buffer, buffer, buffer
+  %input, %gather, %scatter = buffer.assume.alignment %input_unique, %gather_unique, %scatter_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, %row] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 16512 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x4128xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  %scatter_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %scatter_slots = buffer.view %scatter_storage[%origin] : buffer -> view<1x4128xi32>
+  %scatter_records = channel.bind<fifo> %scatter_slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %initial = buffer.view %input[%origin] : buffer -> view<4128xi32>
+    %gather_output = buffer.view %gather[%origin] : buffer -> view<2x[%wrap]xi32>
+    %scatter_input = buffer.view %input[%origin] : buffer -> view<2x[%wrap]xi32>
+    %scatter_output = buffer.view %scatter[%origin] : buffer -> view<4128xi32>
+
+    %gather_write, %gather_destination = channel.reserve %records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_gather = kernel.async.copy %initial to %gather_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_gather_group = kernel.async.group %initialize_gather : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_gather_group {newer_groups = 0} : kernel.async.group
+    channel.publish %gather_write : write<tile<4128xi32>>
+    %gather_read, %gather_payload = channel.acquire %records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %gather_shaped = view.bitcast %gather_payload : view<4128xi32> -> view<2x2064xi32>
+    %gather_strided = view.refine %gather_shaped : view<2x2064xi32> -> view<2x2064xi32, #encoding.layout.strided<strides=[2064, 1]>>
+    %gather_selected = view.subview %gather_strided[0, 0] : view<2x2064xi32, #encoding.layout.strided<strides=[2064, 1]>> -> view<2x[%wrap]xi32, #encoding.layout.strided<strides=[2064, 1]>>
+    %gather_copy = kernel.async.copy %gather_selected to %gather_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2x[%wrap]xi32, #encoding.layout.strided<strides=[2064, 1]>> to view<2x[%wrap]xi32> -> kernel.async.token
+    %gather_group = kernel.async.group %gather_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_group {newer_groups = 0} : kernel.async.group
+    channel.release %gather_read : read<tile<4128xi32>>
+
+    %scatter_write, %scatter_destination = channel.reserve %scatter_records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_scatter = kernel.async.copy %initial to %scatter_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_scatter_group = kernel.async.group %initialize_scatter : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_scatter_group {newer_groups = 0} : kernel.async.group
+    %scatter_shaped = view.bitcast %scatter_destination : view<4128xi32> -> view<2x2064xi32>
+    %scatter_strided = view.refine %scatter_shaped : view<2x2064xi32> -> view<2x2064xi32, #encoding.layout.strided<strides=[2064, 1]>>
+    %scatter_selected = view.subview %scatter_strided[0, 0] : view<2x2064xi32, #encoding.layout.strided<strides=[2064, 1]>> -> view<2x[%wrap]xi32, #encoding.layout.strided<strides=[2064, 1]>>
+    %scatter_copy = kernel.async.copy %scatter_input to %scatter_selected {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x[%wrap]xi32> to view<2x[%wrap]xi32, #encoding.layout.strided<strides=[2064, 1]>> -> kernel.async.token
+    %scatter_group = kernel.async.group %scatter_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_group {newer_groups = 0} : kernel.async.group
+    channel.publish %scatter_write : write<tile<4128xi32>>
+    %scatter_read, %scatter_payload = channel.acquire %scatter_records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %outgoing = kernel.async.copy %scatter_payload to %scatter_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %outgoing_group = kernel.async.group %outgoing : kernel.async.token -> kernel.async.group
+    kernel.async.wait %outgoing_group {newer_groups = 0} : kernel.async.group
+    channel.release %scatter_read : read<tile<4128xi32>>
+  }
+}
+
+pipeline.def<kernel> @local_wrap_dimension1(%row: index, %wrap: index) run(%input_arg: buffer, %gather_arg: buffer, %scatter_arg: buffer) {
+  %input_unique, %gather_unique, %scatter_unique = buffer.assume.noalias %input_arg, %gather_arg, %scatter_arg : buffer, buffer, buffer
+  %input, %gather, %scatter = buffer.assume.alignment %input_unique, %gather_unique, %scatter_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, %row] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 16512 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x4128xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  %scatter_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %scatter_slots = buffer.view %scatter_storage[%origin] : buffer -> view<1x4128xi32>
+  %scatter_records = channel.bind<fifo> %scatter_slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %initial = buffer.view %input[%origin] : buffer -> view<4128xi32>
+    %gather_output = buffer.view %gather[%origin] : buffer -> view<2x[%wrap]x1xi32>
+    %scatter_input = buffer.view %input[%origin] : buffer -> view<2x[%wrap]x1xi32>
+    %scatter_output = buffer.view %scatter[%origin] : buffer -> view<4128xi32>
+
+    %gather_write, %gather_destination = channel.reserve %records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_gather = kernel.async.copy %initial to %gather_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_gather_group = kernel.async.group %initialize_gather : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_gather_group {newer_groups = 0} : kernel.async.group
+    channel.publish %gather_write : write<tile<4128xi32>>
+    %gather_read, %gather_payload = channel.acquire %records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %gather_shaped = view.bitcast %gather_payload : view<4128xi32> -> view<2x1032x2xi32>
+    %gather_strided = view.refine %gather_shaped : view<2x1032x2xi32> -> view<2x1032x2xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+    %gather_selected = view.subview %gather_strided[0, 0, 0] : view<2x1032x2xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> -> view<2x[%wrap]x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+    %gather_copy = kernel.async.copy %gather_selected to %gather_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2x[%wrap]x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> to view<2x[%wrap]x1xi32> -> kernel.async.token
+    %gather_group = kernel.async.group %gather_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_group {newer_groups = 0} : kernel.async.group
+    channel.release %gather_read : read<tile<4128xi32>>
+
+    %scatter_write, %scatter_destination = channel.reserve %scatter_records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_scatter = kernel.async.copy %initial to %scatter_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_scatter_group = kernel.async.group %initialize_scatter : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_scatter_group {newer_groups = 0} : kernel.async.group
+    %scatter_shaped = view.bitcast %scatter_destination : view<4128xi32> -> view<2x1032x2xi32>
+    %scatter_strided = view.refine %scatter_shaped : view<2x1032x2xi32> -> view<2x1032x2xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+    %scatter_selected = view.subview %scatter_strided[0, 0, 0] : view<2x1032x2xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> -> view<2x[%wrap]x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+    %scatter_copy = kernel.async.copy %scatter_input to %scatter_selected {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x[%wrap]x1xi32> to view<2x[%wrap]x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> -> kernel.async.token
+    %scatter_group = kernel.async.group %scatter_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_group {newer_groups = 0} : kernel.async.group
+    channel.publish %scatter_write : write<tile<4128xi32>>
+    %scatter_read, %scatter_payload = channel.acquire %scatter_records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %outgoing = kernel.async.copy %scatter_payload to %scatter_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %outgoing_group = kernel.async.group %outgoing : kernel.async.token -> kernel.async.group
+    kernel.async.wait %outgoing_group {newer_groups = 0} : kernel.async.group
+    channel.release %scatter_read : read<tile<4128xi32>>
+  }
+}
+
+pipeline.def<kernel> @local_wrap_dimension2(%row: index, %wrap: index) run(%input_arg: buffer, %gather_arg: buffer, %scatter_arg: buffer) {
+  %input_unique, %gather_unique, %scatter_unique = buffer.assume.noalias %input_arg, %gather_arg, %scatter_arg : buffer, buffer, buffer
+  %input, %gather, %scatter = buffer.assume.alignment %input_unique, %gather_unique, %scatter_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, %row] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 16512 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x4128xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  %scatter_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %scatter_slots = buffer.view %scatter_storage[%origin] : buffer -> view<1x4128xi32>
+  %scatter_records = channel.bind<fifo> %scatter_slots, %capacity : view<1x4128xi32>, index -> channel<tile<4128xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %initial = buffer.view %input[%origin] : buffer -> view<4128xi32>
+    %gather_output = buffer.view %gather[%origin] : buffer -> view<2x[%wrap]x1x1xi32>
+    %scatter_input = buffer.view %input[%origin] : buffer -> view<2x[%wrap]x1x1xi32>
+    %scatter_output = buffer.view %scatter[%origin] : buffer -> view<4128xi32>
+
+    %gather_write, %gather_destination = channel.reserve %records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_gather = kernel.async.copy %initial to %gather_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_gather_group = kernel.async.group %initialize_gather : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_gather_group {newer_groups = 0} : kernel.async.group
+    channel.publish %gather_write : write<tile<4128xi32>>
+    %gather_read, %gather_payload = channel.acquire %records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %gather_shaped = view.bitcast %gather_payload : view<4128xi32> -> view<2x1032x1x2xi32>
+    %gather_strided = view.refine %gather_shaped : view<2x1032x1x2xi32> -> view<2x1032x1x2xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>>
+    %gather_selected = view.subview %gather_strided[0, 0, 0, 0] : view<2x1032x1x2xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>> -> view<2x[%wrap]x1x1xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>>
+    %gather_copy = kernel.async.copy %gather_selected to %gather_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2x[%wrap]x1x1xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>> to view<2x[%wrap]x1x1xi32> -> kernel.async.token
+    %gather_group = kernel.async.group %gather_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_group {newer_groups = 0} : kernel.async.group
+    channel.release %gather_read : read<tile<4128xi32>>
+
+    %scatter_write, %scatter_destination = channel.reserve %scatter_records : channel<tile<4128xi32>> -> (write<tile<4128xi32>>, view<4128xi32>)
+    %initialize_scatter = kernel.async.copy %initial to %scatter_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %initialize_scatter_group = kernel.async.group %initialize_scatter : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initialize_scatter_group {newer_groups = 0} : kernel.async.group
+    %scatter_shaped = view.bitcast %scatter_destination : view<4128xi32> -> view<2x1032x1x2xi32>
+    %scatter_strided = view.refine %scatter_shaped : view<2x1032x1x2xi32> -> view<2x1032x1x2xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>>
+    %scatter_selected = view.subview %scatter_strided[0, 0, 0, 0] : view<2x1032x1x2xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>> -> view<2x[%wrap]x1x1xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>>
+    %scatter_copy = kernel.async.copy %scatter_input to %scatter_selected {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x[%wrap]x1x1xi32> to view<2x[%wrap]x1x1xi32, #encoding.layout.strided<strides=[2064, 2, 1, 1]>> -> kernel.async.token
+    %scatter_group = kernel.async.group %scatter_copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_group {newer_groups = 0} : kernel.async.group
+    channel.publish %scatter_write : write<tile<4128xi32>>
+    %scatter_read, %scatter_payload = channel.acquire %scatter_records : channel<tile<4128xi32>> -> (read<tile<4128xi32>>, view<4128xi32>)
+    %outgoing = kernel.async.copy %scatter_payload to %scatter_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<4128xi32> to view<4128xi32> -> kernel.async.token
+    %outgoing_group = kernel.async.group %outgoing : kernel.async.token -> kernel.async.group
+    kernel.async.wait %outgoing_group {newer_groups = 0} : kernel.async.group
+    channel.release %scatter_read : read<tile<4128xi32>>
+  }
+}
+
+pipeline.def<kernel> @shim_wrap_dimension0() run(%input_arg: buffer, %gather_arg: buffer, %scatter_arg: buffer) {
+  %input_unique, %gather_unique, %scatter_unique = buffer.assume.noalias %input_arg, %gather_arg, %scatter_arg : buffer, buffer, buffer
+  %input, %gather, %scatter = buffer.assume.alignment %input_unique, %gather_unique, %scatter_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8184 : offset
+  %capacity = index.constant 1 : index
+  %gather_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %gather_slots = buffer.view %gather_storage[%origin] : buffer -> view<1x2046xi32>
+  %gather_records = channel.bind<fifo> %gather_slots, %capacity : view<1x2046xi32>, index -> channel<tile<2046xi32>>
+  %scatter_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %scatter_slots = buffer.view %scatter_storage[%origin] : buffer -> view<1x2046xi32>
+  %scatter_records = channel.bind<fifo> %scatter_slots, %capacity : view<1x2046xi32>, index -> channel<tile<2046xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %gather_input = buffer.view %input[%origin] : buffer -> view<2x1023xi32, #encoding.layout.strided<strides=[2064, 1]>>
+    %gather_output = buffer.view %gather[%origin] : buffer -> view<2046xi32>
+    %scatter_input = buffer.view %input[%origin] : buffer -> view<2046xi32>
+    %scatter_output = buffer.view %scatter[%origin] : buffer -> view<2x1023xi32, #encoding.layout.strided<strides=[2064, 1]>>
+
+    %gather_write, %gather_destination = channel.reserve %gather_records : channel<tile<2046xi32>> -> (write<tile<2046xi32>>, view<2046xi32>)
+    %gather_ingress = kernel.async.copy %gather_input to %gather_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x1023xi32, #encoding.layout.strided<strides=[2064, 1]>> to view<2046xi32> -> kernel.async.token
+    %gather_ingress_group = kernel.async.group %gather_ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_ingress_group {newer_groups = 0} : kernel.async.group
+    channel.publish %gather_write : write<tile<2046xi32>>
+    %gather_read, %gather_payload = channel.acquire %gather_records : channel<tile<2046xi32>> -> (read<tile<2046xi32>>, view<2046xi32>)
+    %gather_egress = kernel.async.copy %gather_payload to %gather_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2046xi32> to view<2046xi32> -> kernel.async.token
+    %gather_egress_group = kernel.async.group %gather_egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_egress_group {newer_groups = 0} : kernel.async.group
+    channel.release %gather_read : read<tile<2046xi32>>
+
+    %scatter_write, %scatter_destination = channel.reserve %scatter_records : channel<tile<2046xi32>> -> (write<tile<2046xi32>>, view<2046xi32>)
+    %scatter_ingress = kernel.async.copy %scatter_input to %scatter_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2046xi32> to view<2046xi32> -> kernel.async.token
+    %scatter_ingress_group = kernel.async.group %scatter_ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_ingress_group {newer_groups = 0} : kernel.async.group
+    channel.publish %scatter_write : write<tile<2046xi32>>
+    %scatter_read, %scatter_payload = channel.acquire %scatter_records : channel<tile<2046xi32>> -> (read<tile<2046xi32>>, view<2046xi32>)
+    %scatter_egress = kernel.async.copy %scatter_payload to %scatter_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2046xi32> to view<2x1023xi32, #encoding.layout.strided<strides=[2064, 1]>> -> kernel.async.token
+    %scatter_egress_group = kernel.async.group %scatter_egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_egress_group {newer_groups = 0} : kernel.async.group
+    channel.release %scatter_read : read<tile<2046xi32>>
+  }
+}
+
+pipeline.def<kernel> @shim_wrap_dimension1() run(%input_arg: buffer, %gather_arg: buffer, %scatter_arg: buffer) {
+  %input_unique, %gather_unique, %scatter_unique = buffer.assume.noalias %input_arg, %gather_arg, %scatter_arg : buffer, buffer, buffer
+  %input, %gather, %scatter = buffer.assume.alignment %input_unique, %gather_unique, %scatter_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8184 : offset
+  %capacity = index.constant 1 : index
+  %gather_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %gather_slots = buffer.view %gather_storage[%origin] : buffer -> view<1x2046xi32>
+  %gather_records = channel.bind<fifo> %gather_slots, %capacity : view<1x2046xi32>, index -> channel<tile<2046xi32>>
+  %scatter_storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %scatter_slots = buffer.view %scatter_storage[%origin] : buffer -> view<1x2046xi32>
+  %scatter_records = channel.bind<fifo> %scatter_slots, %capacity : view<1x2046xi32>, index -> channel<tile<2046xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %gather_input = buffer.view %input[%origin] : buffer -> view<2x1023x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+    %gather_output = buffer.view %gather[%origin] : buffer -> view<2046xi32>
+    %scatter_input = buffer.view %input[%origin] : buffer -> view<2046xi32>
+    %scatter_output = buffer.view %scatter[%origin] : buffer -> view<2x1023x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>>
+
+    %gather_write, %gather_destination = channel.reserve %gather_records : channel<tile<2046xi32>> -> (write<tile<2046xi32>>, view<2046xi32>)
+    %gather_ingress = kernel.async.copy %gather_input to %gather_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x1023x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> to view<2046xi32> -> kernel.async.token
+    %gather_ingress_group = kernel.async.group %gather_ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_ingress_group {newer_groups = 0} : kernel.async.group
+    channel.publish %gather_write : write<tile<2046xi32>>
+    %gather_read, %gather_payload = channel.acquire %gather_records : channel<tile<2046xi32>> -> (read<tile<2046xi32>>, view<2046xi32>)
+    %gather_egress = kernel.async.copy %gather_payload to %gather_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2046xi32> to view<2046xi32> -> kernel.async.token
+    %gather_egress_group = kernel.async.group %gather_egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %gather_egress_group {newer_groups = 0} : kernel.async.group
+    channel.release %gather_read : read<tile<2046xi32>>
+
+    %scatter_write, %scatter_destination = channel.reserve %scatter_records : channel<tile<2046xi32>> -> (write<tile<2046xi32>>, view<2046xi32>)
+    %scatter_ingress = kernel.async.copy %scatter_input to %scatter_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2046xi32> to view<2046xi32> -> kernel.async.token
+    %scatter_ingress_group = kernel.async.group %scatter_ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_ingress_group {newer_groups = 0} : kernel.async.group
+    channel.publish %scatter_write : write<tile<2046xi32>>
+    %scatter_read, %scatter_payload = channel.acquire %scatter_records : channel<tile<2046xi32>> -> (read<tile<2046xi32>>, view<2046xi32>)
+    %scatter_egress = kernel.async.copy %scatter_payload to %scatter_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2046xi32> to view<2x1023x1xi32, #encoding.layout.strided<strides=[2064, 2, 1]>> -> kernel.async.token
+    %scatter_egress_group = kernel.async.group %scatter_egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %scatter_egress_group {newer_groups = 0} : kernel.async.group
+    channel.release %scatter_read : read<tile<2046xi32>>
+  }
+}
+
+func.def inline @reference(%input: buffer, %gather: buffer, %scatter: buffer, %wrap: index, %stride: index, %initialize: i1) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<4128xi32>
+  %gather_output = buffer.view %gather[%origin] : buffer -> view<4128xi32>
+  %scatter_output = buffer.view %scatter[%origin] : buffer -> view<4128xi32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c2064 = index.constant 2064 : index
+  %c4128 = index.constant 4128 : index
+  scf.if %initialize {
+    scf.for %position = [%c0 to %c4128 step %c1] {
+      %value = view.load %source[%position] : view<4128xi32> -> i32
+      view.store %value, %scatter_output[%position] : i32, view<4128xi32>
+    }
+  }
+  scf.for %row = [%c0 to %c2 step %c1] {
+    %dense_base = index.mul %row, %wrap : index
+    %strided_base = index.mul %row, %c2064 : index
+    scf.for %column = [%c0 to %wrap step %c1] {
+      %dense = index.add %dense_base, %column : index
+      %scaled = index.mul %column, %stride : index
+      %strided = index.add %strided_base, %scaled : index
+      %gathered = view.load %source[%strided] : view<4128xi32> -> i32
+      view.store %gathered, %gather_output[%dense] : i32, view<4128xi32>
+      %scattered = view.load %source[%dense] : view<4128xi32> -> i32
+      view.store %scattered, %scatter_output[%strided] : i32, view<4128xi32>
+    }
+  }
+  func.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @compute_dimension0() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %row = index.constant 3 : index
+  %wrap = index.constant 255 : index
+  pipeline.compose @local_wrap_dimension0[%row, %wrap](%input, %gather, %scatter) : [index, index](buffer, buffer, buffer)
+}
+
+func.def @compute_dimension0_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 255 : index
+  %stride = index.constant 1 : index
+  %initialize = scalar.constant 1 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @compute_dimension0_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@compute_dimension0, @compute_dimension0_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @compute_dimension1() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %row = index.constant 3 : index
+  %wrap = index.constant 255 : index
+  pipeline.compose @local_wrap_dimension1[%row, %wrap](%input, %gather, %scatter) : [index, index](buffer, buffer, buffer)
+}
+
+func.def @compute_dimension1_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 255 : index
+  %stride = index.constant 2 : index
+  %initialize = scalar.constant 1 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @compute_dimension1_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@compute_dimension1, @compute_dimension1_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @memory_dimension0() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %row = index.constant 1 : index
+  %wrap = index.constant 1023 : index
+  pipeline.compose @local_wrap_dimension0[%row, %wrap](%input, %gather, %scatter) : [index, index](buffer, buffer, buffer)
+}
+
+func.def @memory_dimension0_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 1023 : index
+  %stride = index.constant 1 : index
+  %initialize = scalar.constant 1 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @memory_dimension0_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@memory_dimension0, @memory_dimension0_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @memory_dimension1() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %row = index.constant 1 : index
+  %wrap = index.constant 1023 : index
+  pipeline.compose @local_wrap_dimension1[%row, %wrap](%input, %gather, %scatter) : [index, index](buffer, buffer, buffer)
+}
+
+func.def @memory_dimension1_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 1023 : index
+  %stride = index.constant 2 : index
+  %initialize = scalar.constant 1 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @memory_dimension1_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@memory_dimension1, @memory_dimension1_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @memory_dimension2() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %row = index.constant 1 : index
+  %wrap = index.constant 1023 : index
+  pipeline.compose @local_wrap_dimension2[%row, %wrap](%input, %gather, %scatter) : [index, index](buffer, buffer, buffer)
+}
+
+func.def @memory_dimension2_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 1023 : index
+  %stride = index.constant 2 : index
+  %initialize = scalar.constant 1 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @memory_dimension2_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@memory_dimension2, @memory_dimension2_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @shim_dimension0() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  pipeline.compose @shim_wrap_dimension0(%input, %gather, %scatter) : (buffer, buffer, buffer)
+}
+
+func.def @shim_dimension0_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 1023 : index
+  %stride = index.constant 1 : index
+  %initialize = scalar.constant 0 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @shim_dimension0_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@shim_dimension0, @shim_dimension0_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@npu) @shim_dimension1() run(%input: buffer, %gather: buffer, %scatter: buffer) {
+  pipeline.compose @shim_wrap_dimension1(%input, %gather, %scatter) : (buffer, buffer, buffer)
+}
+
+func.def @shim_dimension1_reference(%input: buffer, %gather: buffer, %scatter: buffer) {
+  %wrap = index.constant 1023 : index
+  %stride = index.constant 2 : index
+  %initialize = scalar.constant 0 : i1
+  func.call @reference(%input, %gather, %scatter, %wrap, %stride, %initialize) : (buffer, buffer, buffer, index, index, i1)
+  func.return
+}
+
+check.scenario public @shim_dimension1_wrap {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_owner = check.generate.random.uniform seed(%seed) range(-2000000000 to 2000000000) : tensor<4160xi32>
+    %gather_owner = check.generate.random.uniform seed(%seed) range(-200000 to -100000) : tensor<4160xi32>
+    %scatter_owner = check.generate.random.uniform seed(%seed) range(-400000 to -300000) : tensor<4160xi32>
+    %input = check.tensor.view %input_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %gather = check.tensor.view %gather_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    %scatter = check.tensor.view %scatter_owner offset(64) : tensor<4160xi32> -> tensor<4128xi32>
+    check.compare<@shim_dimension1, @shim_dimension1_reference>(%input, %gather, %scatter) : (tensor<4128xi32>, tensor<4128xi32>, tensor<4128xi32>) -> () {
+      check.expect.bitwise actual(%input_owner) expected(%input_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%gather_owner) expected(%gather_owner) : tensor<4160xi32>
+      check.expect.bitwise actual(%scatter_owner) expected(%scatter_owner) : tensor<4160xi32>
+    }
+  }
+  check.return
+}

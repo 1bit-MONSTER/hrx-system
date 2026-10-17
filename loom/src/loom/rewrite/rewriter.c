@@ -16,6 +16,7 @@
 #include "loom/target/math_policy.h"
 #include "loom/util/fact_cfg.h"
 #include "loom/util/fact_loop.h"
+#include "loom/util/fact_vector_partition.h"
 
 #define LOOM_REWRITER_INITIAL_WORKLIST_CAPACITY 64
 #define LOOM_REWRITER_INITIAL_REGION_STACK_CAPACITY 8
@@ -894,6 +895,37 @@ iree_status_t loom_rewriter_try_set_derived_value_name(
 // Mini-DCE
 //===----------------------------------------------------------------------===//
 
+// SSA materializations borrow live definitions, unlike numeric facts that
+// remain meaningful after their producer is removed. The erasing mutation
+// owns withdrawal for the complete removed subtree.
+static void loom_rewriter_erase_partition_values(loom_rewriter_t* rewriter,
+                                                 loom_op_t* op) {
+  if (!rewriter->fact_table || !rewriter->fact_table->vector_partitions) {
+    return;
+  }
+  const loom_value_id_t* results = loom_op_const_results(op);
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    loom_value_fact_table_invalidate_vector_partition_value(
+        rewriter->fact_table, results[i]);
+  }
+  for (uint8_t i = 0; i < op->region_count; ++i) {
+    loom_region_t* region = loom_op_regions(op)[i];
+    if (!region) {
+      continue;
+    }
+    loom_block_t* block = NULL;
+    loom_region_for_each_block(region, block) {
+      for (uint16_t j = 0; j < block->arg_count; ++j) {
+        loom_value_fact_table_invalidate_vector_partition_value(
+            rewriter->fact_table, block->arg_ids[j]);
+      }
+      for (loom_op_t* child = block->first_op; child; child = child->next_op) {
+        loom_rewriter_erase_partition_values(rewriter, child);
+      }
+    }
+  }
+}
+
 bool loom_rewriter_is_trivially_dead(const loom_rewriter_t* rewriter,
                                      const loom_op_t* op) {
   return loom_op_is_trivially_dead(rewriter->module, op);
@@ -1194,6 +1226,7 @@ iree_status_t loom_rewriter_replace_all_uses_and_erase(
       loom_rewriter_add_subtree_providers_to_worklist(rewriter, op));
   IREE_RETURN_IF_ERROR(
       loom_rewriter_add_parent_summary_ops_to_worklist(rewriter, op));
+  loom_rewriter_erase_partition_values(rewriter, op);
   IREE_RETURN_IF_ERROR(loom_op_erase(rewriter->module, op));
   ++rewriter->erased_op_count;
   rewriter->flags |= LOOM_REWRITER_FLAG_CHANGED;
@@ -1215,6 +1248,16 @@ iree_status_t loom_rewriter_replace_all_uses_with(loom_rewriter_t* rewriter,
       rewriter, old_value, LOOM_REWRITER_USER_CHANGE_FLAG_REPLACED));
   IREE_RETURN_IF_ERROR(
       loom_value_replace_all_uses_with(rewriter->module, old_value, new_value));
+  if (rewriter->fact_table && rewriter->fact_table->vector_partitions) {
+    if (loom_type_equal(loom_module_value_type(rewriter->module, old_value),
+                        loom_module_value_type(rewriter->module, new_value))) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_replace_vector_partition_value(
+          rewriter->fact_table, old_value, new_value));
+    } else {
+      loom_value_fact_table_invalidate_vector_partition_value(
+          rewriter->fact_table, old_value);
+    }
+  }
   rewriter->flags |= LOOM_REWRITER_FLAG_CHANGED;
   return iree_ok_status();
 }
@@ -1275,6 +1318,7 @@ iree_status_t loom_rewriter_erase(loom_rewriter_t* rewriter, loom_op_t* op) {
       loom_rewriter_add_subtree_providers_to_worklist(rewriter, op));
   IREE_RETURN_IF_ERROR(
       loom_rewriter_add_parent_summary_ops_to_worklist(rewriter, op));
+  loom_rewriter_erase_partition_values(rewriter, op);
   IREE_RETURN_IF_ERROR(loom_op_erase(rewriter->module, op));
   ++rewriter->erased_op_count;
   rewriter->flags |= LOOM_REWRITER_FLAG_CHANGED;
@@ -1289,6 +1333,7 @@ iree_status_t loom_rewriter_erase_closed_set(loom_rewriter_t* rewriter,
         loom_rewriter_add_subtree_providers_to_worklist(rewriter, ops[i]));
     IREE_RETURN_IF_ERROR(
         loom_rewriter_add_parent_summary_ops_to_worklist(rewriter, ops[i]));
+    loom_rewriter_erase_partition_values(rewriter, ops[i]);
   }
   loom_op_erase_closed_set(rewriter->module, ops, count);
   rewriter->erased_op_count += count;
@@ -1735,6 +1780,10 @@ iree_status_t loom_rewriter_set_value_type(loom_rewriter_t* rewriter,
       loom_rewriter_add_type_ref_providers_to_worklist(rewriter, new_type));
   IREE_RETURN_IF_ERROR(
       loom_module_set_value_type(rewriter->module, value_id, new_type));
+  if (rewriter->fact_table && !loom_type_equal(old_type, new_type)) {
+    loom_value_fact_table_invalidate_vector_partition_value(
+        rewriter->fact_table, value_id);
+  }
   loom_value_t* value = loom_module_value(rewriter->module, value_id);
   if (!loom_value_is_block_arg(value)) {
     loom_op_t* defining_op = loom_value_def_op(value);
