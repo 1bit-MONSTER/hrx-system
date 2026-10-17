@@ -167,10 +167,7 @@ global.rodata.def @bf16_pairs = align(32) bytes("803f004040408040a040c040e040004
 
 // One immutable table is observed as packed BF16 pairs, individual halfwords,
 // and raw 64-bit values. Runtime masks define each lookup domain.
-kernel.def @immutable_gather() {
-  %unit = index.constant 1 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
+func.def @immutable_gather(%input: buffer, %output: buffer) {
   %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
   %table = global.load @bf16_pairs : buffer
   %origin = index.constant 0 : offset
@@ -208,7 +205,7 @@ kernel.def @immutable_gather() {
   %f64_indices = vector.andi %raw_f64_indices, %f64_index_mask : vector<8xi32>
   %f64_values = vector.gather %table_f64[0][%f64_indices] : view<8xf64>, vector<8xi32> -> vector<8xf64>
   vector.store %f64_values, %destination_f64[16] : vector<8xf64>, view<24xf64>
-  kernel.return
+  func.return
 }
 
 func.def @immutable_gather_oracle(%input: buffer, %output: buffer) {
