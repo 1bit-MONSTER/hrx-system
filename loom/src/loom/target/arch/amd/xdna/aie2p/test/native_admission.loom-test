@@ -568,3 +568,38 @@ pipeline.def<kernel> public retain target(@device) @transfer_scratch_capacity() 
     }
   }
 }
+
+// ====
+
+aie2p.target<array> @device {device_profile = "amd.xdna.strix.17f0_10"}
+
+// Singleton inner dimensions retain the compute DMA's eight-bit D1 wrap.
+pipeline.def<kernel> public retain target(@device) @dma_wrap_overflow() run(%input_arg: buffer, %output_arg: buffer) {
+  %input_unique, %output_unique = buffer.assume.noalias %input_arg, %output_arg : buffer, buffer
+  %input, %output = buffer.assume.alignment %input_unique, %output_unique {minimum_alignment = 4} : buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4224 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x1056xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x1056xi32>, index -> channel<tile<1056xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %external_input = buffer.view %input[%origin] : buffer -> view<1056xi32>
+    %external_output = buffer.view %output[%origin] : buffer -> view<2x256x1xi32>
+    %write, %destination = channel.reserve %records : channel<tile<1056xi32>> -> (write<tile<1056xi32>>, view<1056xi32>)
+    %ingress = kernel.async.copy %external_input to %destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1056xi32> to view<1056xi32> -> kernel.async.token
+    %incoming = kernel.async.group %ingress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %incoming {newer_groups = 0} : kernel.async.group
+    channel.publish %write : write<tile<1056xi32>>
+    %read, %payload = channel.acquire %records : channel<tile<1056xi32>> -> (read<tile<1056xi32>>, view<1056xi32>)
+    %shaped = view.bitcast %payload : view<1056xi32> -> view<2x264x2xi32>
+    %strided = view.refine %shaped : view<2x264x2xi32> -> view<2x264x2xi32, #encoding.layout.strided<strides=[528, 2, 1]>>
+    %selected = view.subview %strided[0, 0, 0] : view<2x264x2xi32, #encoding.layout.strided<strides=[528, 2, 1]>> -> view<2x256x1xi32, #encoding.layout.strided<strides=[528, 2, 1]>>
+    // ERROR@+1: XDNA/051 {requirement="an address dimension exceeds the nonzero DMA wrap field"}
+    %egress = kernel.async.copy %selected to %external_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<2x256x1xi32, #encoding.layout.strided<strides=[528, 2, 1]>> to view<2x256x1xi32> -> kernel.async.token
+    %outgoing = kernel.async.group %egress : kernel.async.token -> kernel.async.group
+    kernel.async.wait %outgoing {newer_groups = 0} : kernel.async.group
+    channel.release %read : read<tile<1056xi32>>
+  }
+}

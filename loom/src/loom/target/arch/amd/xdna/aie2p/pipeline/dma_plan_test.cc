@@ -91,6 +91,66 @@ uint32_t Decode(uint32_t word, loom_xdna_register_field_id_t field) {
          (UINT32_MAX >> (32 - info.bit_width));
 }
 
+TEST(Aie2pDmaPlanTest, EveryAddressWrapFieldRejectsTruncation) {
+  const auto* family = loom_xdna_npu2_array_family();
+  const struct {
+    // Tile module whose descriptor owns the address generator.
+    loom_xdna_tile_kind_t kind;
+    // Physical wrap field, counted from the innermost address dimension.
+    uint8_t dimension;
+    // Largest nonzero count representable by this hardware field.
+    uint16_t maximum;
+    // Descriptor word containing the wrap field.
+    uint8_t word;
+    // Register field decoded independently of descriptor planning.
+    loom_xdna_register_field_id_t field;
+  } cases[] = {
+      {LOOM_XDNA_TILE_KIND_COMPUTE, 0, 255, 3,
+       LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD3_D0_WRAP},
+      {LOOM_XDNA_TILE_KIND_COMPUTE, 1, 255, 3,
+       LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD3_D1_WRAP},
+      {LOOM_XDNA_TILE_KIND_MEMORY, 0, 1023, 2,
+       LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD2_D0_WRAP},
+      {LOOM_XDNA_TILE_KIND_MEMORY, 1, 1023, 3,
+       LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD3_D1_WRAP},
+      {LOOM_XDNA_TILE_KIND_MEMORY, 2, 1023, 4,
+       LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD4_D2_WRAP},
+      {LOOM_XDNA_TILE_KIND_SHIM_NOC, 0, 1023, 3,
+       LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD3_D0_WRAP},
+      {LOOM_XDNA_TILE_KIND_SHIM_NOC, 1, 1023, 4,
+       LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD4_D1_WRAP},
+  };
+  for (const auto& entry : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "tile=" << entry.kind << " dimension=" << +entry.dimension);
+    const auto* dma = &loom_xdna_array_tile_kind_facts(family, entry.kind)->dma;
+    loom_storage_geometry_t geometry = {
+        .layout_kind = LOOM_VALUE_FACT_ADDRESS_LAYOUT_STRIDED,
+        .element_bit_count = 32,
+        .rank = static_cast<uint8_t>(entry.dimension + 2),
+        .axes = {{2, 2064},
+                 {entry.maximum, entry.dimension ? 2u : 1u},
+                 {1, 1},
+                 {1, 1}},
+    };
+    uint32_t words[8] = {};
+    iree_string_view_t reason;
+    ASSERT_TRUE(loom_aie2p_native_encode_descriptor(
+        family, &geometry, dma, 2 * entry.maximum * sizeof(uint32_t), 1,
+        entry.kind, words, &reason));
+    EXPECT_EQ(Decode(words[entry.word], entry.field), entry.maximum);
+
+    ++geometry.axes[1].extent;
+    uint32_t rejected_words[8] = {};
+    EXPECT_FALSE(loom_aie2p_native_encode_descriptor(
+        family, &geometry, dma, 2 * (entry.maximum + 1) * sizeof(uint32_t), 1,
+        entry.kind, rejected_words, &reason));
+    EXPECT_TRUE(iree_string_view_equal(
+        reason,
+        IREE_SV("an address dimension exceeds the nonzero DMA wrap field")));
+  }
+}
+
 class Aie2pDmaSequenceTest
     : public ::testing::TestWithParam<loom_xdna_tile_kind_t> {
  protected:

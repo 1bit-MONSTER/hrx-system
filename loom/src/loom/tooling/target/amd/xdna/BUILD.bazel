@@ -109,6 +109,13 @@ loom_test(
     tags = ["manual"],
 )
 
+loom_test(
+    name = "dma_wrap_execution_test",
+    srcs = ["test/dma_wrap.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [XDNA_HARDWARE_PROFILE],
+)
+
 loom_check_test(
     name = "assembly_lowering",
     src = "test/assembly.cxx-test",

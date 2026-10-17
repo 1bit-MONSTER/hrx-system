@@ -115,6 +115,40 @@ loom_execution_test(
 )
 endif()
 
+loom_test_module(
+  NAME
+    dma_wrap_execution_test_module
+  SRCS
+    "test/dma_wrap.loom"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA)
+loom_execution_test(
+  NAME
+    dma_wrap_execution_test_execute_xdna_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::dma_wrap_execution_test_module"
+  RUNNER_ARGS
+    "--device=xdna"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-build-requirement=loom.target.arch.xdna"
+    "iree-build-requirement=loom.emit.xdna"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+    "loom-execution-profile=xdna_hardware"
+    "loom-target-family=xdna"
+    "loom-target-class=npu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
 iree_native_test(
   NAME
