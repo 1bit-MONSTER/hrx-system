@@ -191,7 +191,10 @@ check.scenario @computed_snapshot_across_barrier_values {
 
 // A 128-byte snapshot crosses register boundaries and remains intact after its
 // source is poisoned. Partial stores preserve the remaining output bytes.
-func.def @capture_partial_byte_vectors(%input: buffer, %output: buffer) {
+kernel.def @capture_partial_byte_vectors() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
   %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
   %origin = index.constant 0 : offset
   %payload_origin = index.constant 64 : offset
@@ -236,7 +239,7 @@ func.def @capture_partial_byte_vectors(%input: buffer, %output: buffer) {
     vector.store %wide_joined, %destination_view[416] : vector<65xi8>, view<512xi8>
     scf.yield %carried : vector<128xi8>
   }
-  func.return
+  kernel.return
 }
 
 func.def @generate_partial_snapshot(%trial: index, %input: buffer) {

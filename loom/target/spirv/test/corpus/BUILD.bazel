@@ -340,6 +340,7 @@ _NO_EXTENDED_TYPES_XFAILS = {
     "memory/packed/tails.loom:@stage_i8_7": "TARGET/003",
     "memory/storage/byte_banks.loom:@aligned_byte_increment": "TARGET/003",
     "memory/storage/byte_banks.loom:@byte_selected_storage": "TARGET/003",
+    "memory/storage/load_snapshot.loom:@capture_partial_byte_vectors": "TARGET/003",
     "memory/storage/workgroup.loom:@workgroup_bfloat_payload_exchange": "TARGET/003",
     "memory/storage/workgroup.loom:@workgroup_packet_exchange": "TARGET/003",
     "memory/view/strided_vectors.loom:@strided_vector_address_spaces": "TARGET/003",

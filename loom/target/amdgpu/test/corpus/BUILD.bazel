@@ -142,6 +142,7 @@ loom_corpus_build(
             "kernel/workgroup/reduce_tree.loom:@workgroup_tree_extrema_types": "AMDGPU/023",
             "kernel/workgroup/reduce_tree.loom:@workgroup_tree_float_types": "AMDGPU/023",
             "kernel/workgroup/reduce_tree.loom:@workgroup_tree_integer_types": "AMDGPU/023",
+            "memory/storage/load_snapshot.loom:@capture_partial_byte_vectors": "AMDGPU/023",
         },
         "//loom/target/amdgpu:without_bf16_fma": {
             "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16": "TARGET/003",
