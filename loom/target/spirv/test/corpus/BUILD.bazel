@@ -272,6 +272,7 @@ _ALL_PROFILE_XFAILS = {
     "numeric/integer/wide/address_comparison.loom:@mixed_width_index_comparisons": "SPIRV/026",
     "numeric/predicate/extract.loom:@predicate_extract": "TARGET/003",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_fma": "TARGET/001",
+    "numeric/vector/integer_widening.loom:@partial_widening": "TARGET/003",
 }
 
 _EXTENDED_TYPES_XFAILS = {
