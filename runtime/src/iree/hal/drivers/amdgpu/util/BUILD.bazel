@@ -266,7 +266,11 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_library(
     name = "info",
-    srcs = ["info.c"],
+    srcs = [
+        "info.c",
+        "no_svm_gate.c",
+        "no_svm_gate.h",
+    ],
     hdrs = ["info.h"],
     deps = [
         ":libhsa",

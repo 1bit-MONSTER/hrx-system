@@ -358,6 +358,8 @@ iree_cc_library(
     "info.h"
   SRCS
     "info.c"
+    "no_svm_gate.c"
+    "no_svm_gate.h"
   DEPS
     ::libhsa
     iree::base
