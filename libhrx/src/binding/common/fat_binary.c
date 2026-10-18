@@ -1,13 +1,20 @@
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// process_vm_readv() (used by the length-less ELF readability probe
+// below) is a GNU extension; request it before any system header latches
+// the glibc feature-test macros.
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include "common/fat_binary.h"
 
 #include <stdint.h>
 #include <string.h>
 
 #if defined(IREE_PLATFORM_LINUX)
-#include <sys/mman.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #endif  // IREE_PLATFORM_LINUX
 
@@ -533,12 +540,21 @@ static iree_status_t hrx_fat_format_amdgpu_target_key(
                                            &length, IREE_SV("xnack"), xnack);
 }
 
-// Returns true when every page covering [data, data + length) is mapped in this
-// process. A length-less image carries no proof that any byte past the ELF
+// Returns true when every byte in [data, data + length) is actually readable in
+// this process. A length-less image carries no proof that any byte past the ELF
 // header is readable, so the length must be inferred from the header; this
 // probe keeps a hostile (or truncated) header from steering a table read into
-// unmapped memory. Platforms without mmap-based page residency rely on the
-// extent bound alone.
+// unreadable memory.
+//
+// Readability, not mere mapped-ness, is what the reads below require: a VMA can
+// exist for a range that still faults on read (a PROT_NONE guard page is the
+// case engine#420 exercised - mincore() reports such a page as present because
+// a VMA covers it, yet dereferencing it segfaults). process_vm_readv() copies
+// through the same access checks a load would hit and fails with EFAULT on the
+// first unreadable page, so it answers the exact question asked. Reading one
+// byte per spanned page keeps the probe O(pages) while still touching every
+// page a parser could reach. Platforms without this call rely on the extent
+// bound alone.
 static bool hrx_fat_span_is_mapped(const uint8_t* data,
                                    iree_host_size_t length) {
 #if defined(IREE_PLATFORM_LINUX)
@@ -549,23 +565,26 @@ static bool hrx_fat_span_is_mapped(const uint8_t* data,
   if (IREE_UNLIKELY(page_size == 0)) {
     return false;
   }
-  const uintptr_t base = (uintptr_t)data & ~(uintptr_t)(page_size - 1);
-  iree_host_size_t end = 0;
-  if (IREE_UNLIKELY(!iree_host_size_checked_add(
-          (iree_host_size_t)((uintptr_t)data - base), length, &end))) {
-    return false;
-  }
-  const iree_host_size_t page_count = end / page_size + (end % page_size != 0);
-  unsigned char residency[64];
-  iree_host_size_t page_index = 0;
-  while (page_index < page_count) {
-    const iree_host_size_t chunk =
-        iree_min(page_count - page_index, IREE_ARRAYSIZE(residency));
-    if (IREE_UNLIKELY(mincore((void*)(base + page_index * page_size),
-                              (size_t)(chunk * page_size), residency) != 0)) {
+  const pid_t self = getpid();
+  unsigned char scratch = 0;
+  const uint8_t* cursor = data;
+  const uint8_t* const end = data + length;
+  while (cursor < end) {
+    struct iovec local = {/*.iov_base=*/&scratch, /*.iov_len=*/1};
+    struct iovec remote = {/*.iov_base=*/(void*)cursor, /*.iov_len=*/1};
+    if (IREE_UNLIKELY(process_vm_readv(self, &local, 1, &remote, 1, 0) != 1)) {
+      // The page holding |cursor| is not readable (unmapped or PROT_NONE), so
+      // the declared extent is not backed by a complete, readable image.
       return false;
     }
-    page_index += chunk;
+    // Advance to the first byte of the next page; every page the extent spans
+    // is probed exactly once.
+    const uintptr_t next_page =
+        ((uintptr_t)cursor & ~(uintptr_t)(page_size - 1)) + page_size;
+    if (IREE_UNLIKELY(next_page <= (uintptr_t)cursor)) {
+      return false;  // address-space wraparound
+    }
+    cursor = (const uint8_t*)next_page;
   }
   return true;
 #else

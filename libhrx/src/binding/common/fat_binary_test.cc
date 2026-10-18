@@ -10,6 +10,11 @@
 #include <utility>
 #include <vector>
 
+#if defined(IREE_PLATFORM_LINUX)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif  // IREE_PLATFORM_LINUX
+
 #include "iree/base/api.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -708,5 +713,52 @@ TEST(FatBinaryTest, ClonesWrapperAndRebasesPayloadPointer) {
   iree_hal_streaming_fat_binary_extract_reset(&extract);
   iree_allocator_free(iree_allocator_system(), clone);
 }
+
+#if defined(IREE_PLATFORM_LINUX)
+// Regression for engine#420: a length-less ELF whose section table offset
+// points past the readable header into a mapped-but-unreadable (PROT_NONE)
+// guard page must be rejected, not dereferenced. The length-less extent is
+// derived from the header, and before engine#420 the mapping proof trusted
+// mincore(), which reports a PROT_NONE page as present; the subsequent table
+// read then segfaulted. The readability probe must now reject the extent.
+TEST(FatBinaryTest, RejectsLengthlessElfSpanningUnreadablePage) {
+  const long page_size = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(page_size, 0);
+
+  // Two pages; the second is PROT_NONE so any read into it faults even though a
+  // VMA covers it.
+  uint8_t* base = static_cast<uint8_t*>(
+      mmap(nullptr, static_cast<size_t>(2 * page_size), PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  ASSERT_NE(base, MAP_FAILED);
+  ASSERT_EQ(0, mprotect(base + page_size, static_cast<size_t>(page_size),
+                        PROT_NONE));
+
+  // A valid-looking 64-byte AMDGPU header whose section table begins exactly at
+  // the PROT_NONE page boundary.
+  std::vector<uint8_t> elf = MakeMinimalAmdgpuElf(/*machine=*/0x041);
+  ASSERT_EQ(elf.size(), sizeof(Elf64Header));
+  Elf64Header header;
+  memcpy(&header, elf.data(), sizeof(header));
+  header.shoff = static_cast<uint64_t>(sizeof(Elf64Header));
+  header.shentsize = sizeof(Elf64SectionHeader);
+  header.shnum = 1;
+  memcpy(elf.data(), &header, sizeof(header));
+
+  // Place the header so byte 64 (the section table) is the first PROT_NONE byte.
+  uint8_t* image = base + page_size - sizeof(Elf64Header);
+  memcpy(image, elf.data(), sizeof(Elf64Header));
+
+  char target_key[64] = {};
+  size_t measured_size = 0;
+  // A length-less span (data_length == 0) forces the header-derived extent path.
+  iree::Status status(iree_hal_streaming_fat_binary_describe_amdgpu_elf(
+      iree_make_const_byte_span(image, /*data_length=*/0), sizeof(target_key),
+      target_key, &measured_size));
+  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+
+  ASSERT_EQ(0, munmap(base, static_cast<size_t>(2 * page_size)));
+}
+#endif  // IREE_PLATFORM_LINUX
 
 }  // namespace
