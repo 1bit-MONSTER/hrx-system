@@ -907,6 +907,32 @@ TEST_F(PhysicalDeviceCapabilitiesTest,
       &capability));
 }
 
+TEST_F(PhysicalDeviceCapabilitiesTest, DecodesAgentMemoryProperties) {
+  // A discrete agent advertises no properties at all.
+  const uint8_t discrete[8] = {0};
+  EXPECT_FALSE(iree_hal_amdgpu_agent_memory_properties_is_apu(discrete));
+
+  // HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU, the one property the extension
+  // defines.
+  const uint8_t apu_bit[8] = {0x1};
+  EXPECT_TRUE(iree_hal_amdgpu_agent_memory_properties_is_apu(apu_bit));
+
+  // engine#840: TheRock's libhsa answers 0x2 on this box's gfx1151 APU, a bit
+  // no header on the machine defines. It must not decode as a discrete device.
+  const uint8_t measured_trock[8] = {0x2};
+  EXPECT_TRUE(iree_hal_amdgpu_agent_memory_properties_is_apu(measured_trock));
+
+  const uint8_t apu_bit_and_undefined[8] = {0x3};
+  EXPECT_TRUE(
+      iree_hal_amdgpu_agent_memory_properties_is_apu(apu_bit_and_undefined));
+
+  // Only the two APU encodings count: a word that sets neither is not an APU.
+  const uint8_t other_bits[8] = {0, 0, 0, 0, 0, 0, 0, 0x80};
+  EXPECT_FALSE(iree_hal_amdgpu_agent_memory_properties_is_apu(other_bits));
+  const uint8_t bit_two[8] = {0x4};
+  EXPECT_FALSE(iree_hal_amdgpu_agent_memory_properties_is_apu(bit_two));
+}
+
 TEST_F(PhysicalDeviceCapabilitiesTest, ApuPropertySelectsUnifiedMemory) {
   iree_hal_amdgpu_memory_system_capabilities_selection_t selection =
       MakeMemorySystemSelection();
