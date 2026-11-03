@@ -1426,6 +1426,59 @@ TEST_F(AllocatorTest, UnifiedMemorySatisfiesDualLocality) {
   iree_allocator_free_aligned(host_allocator_, host_ptr);
 }
 
+// engine#840: the HAL decides APU-ness from
+// HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES, and this ROCr signals an APU with a bit
+// the extension header does not name (0x2 on gfx1151). A unified-memory agent
+// must not be recorded as discrete: that withholds the host+device-local memory
+// type from callers. Portable on purpose - the assertions only apply when the
+// agent advertises a property at all, which a discrete agent here does not.
+TEST_F(AllocatorTest, ApuAgentReportsUnifiedMemoryAndServesDualLocality) {
+  uint8_t memory_properties[8] = {0};
+  IREE_ASSERT_OK(iree_hsa_agent_get_info(
+      IREE_LIBHSA(&libhsa_), topology_.gpu_agents[0],
+      (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES,
+      memory_properties));
+  uint64_t properties = 0;
+  std::memcpy(&properties, memory_properties, sizeof(properties));
+
+  TestLogicalDevice test_device;
+  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
+  const iree_hal_amdgpu_physical_device_t* physical_device =
+      test_device.logical_device()->physical_devices[0];
+
+  iree_hal_buffer_params_t params = {0};
+  params.type =
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  params.usage =
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
+  params.queue_family_affinity = kQueueFamilyAffinity0;
+  iree_hal_buffer_params_t resolved_params = {0};
+  iree_device_size_t resolved_allocation_size = 0;
+  const iree_hal_buffer_compatibility_t compatibility =
+      iree_hal_allocator_query_buffer_compatibility(
+          test_device.allocator(), params, /*allocation_size=*/4096,
+          &resolved_params, &resolved_allocation_size);
+
+  if (properties == 0) {
+    // A discrete agent: nothing to assert about unified memory.
+    GTEST_SKIP() << "agent advertises no memory properties (discrete)";
+  }
+  EXPECT_TRUE(physical_device->memory_system.device_local.unified_memory);
+  EXPECT_TRUE(iree_all_bits_set(compatibility,
+                                IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE));
+  EXPECT_TRUE(iree_all_bits_set(
+      resolved_params.type,
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
+
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
+      test_device.allocator(), params, /*allocation_size=*/4096, buffer.out()));
+  EXPECT_TRUE(iree_all_bits_set(
+      iree_hal_buffer_memory_type(buffer),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
+}
+
 TEST_F(AllocatorTest, OversizedAllocationIsRejectedByCompatibility) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
