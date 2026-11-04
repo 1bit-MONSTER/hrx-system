@@ -35,6 +35,16 @@ static_assert(
 // Maximum dispatch events buffered per queue between profiling flushes.
 #define IREE_HAL_AMDGPU_HOST_QUEUE_PROFILE_DISPATCH_EVENT_CAPACITY (64 * 1024)
 
+// Dispatch events that may accumulate before the queue writes them out to the
+// session sink. A capture is only written by a flush, and a client is free never
+// to flush or shut down cleanly, so waiting for one means a client that launches
+// work and exits captures nothing at all (engine #894, measured: 1 640 events
+// reserved, zero written). A threshold keeps the capture bounded and current
+// without needing any client cooperation, and stays far below the ring capacity
+// so the ring is never a budget either (engine #895).
+#define IREE_HAL_AMDGPU_HOST_QUEUE_PROFILE_DISPATCH_EVENT_WRITE_THRESHOLD \
+  (256)
+
 // Maximum queue device events buffered per queue between profiling flushes.
 #define IREE_HAL_AMDGPU_HOST_QUEUE_PROFILE_QUEUE_DEVICE_EVENT_CAPACITY \
   (64 * 1024)
@@ -364,6 +374,19 @@ iree_status_t iree_hal_amdgpu_host_queue_reserve_profile_dispatch_events(
                             " events exceeds queue capacity %" PRIu32,
                             event_count,
                             queue->profiling.dispatch_events.capacity);
+  }
+
+  // Write completed events out before reserving more: this is the only point
+  // every submission path passes through, and it is where the client's own
+  // flush would have been (see the threshold comment above).
+  iree_slim_mutex_lock(&queue->profiling.event_mutex);
+  const uint64_t unwritten_event_count =
+      queue->profiling.dispatch_events.ready_position -
+      queue->profiling.dispatch_events.read_position;
+  iree_slim_mutex_unlock(&queue->profiling.event_mutex);
+  if (unwritten_event_count >=
+      IREE_HAL_AMDGPU_HOST_QUEUE_PROFILE_DISPATCH_EVENT_WRITE_THRESHOLD) {
+    iree_status_ignore(iree_hal_device_profiling_flush(queue->logical_device));
   }
 
   uint64_t available_count = 0;
