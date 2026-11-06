@@ -463,7 +463,7 @@ static iree_status_t iree_hal_amdgpu_physical_device_query_agent_is_apu(
       (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES,
       memory_properties));
   *out_agent_is_apu =
-      hsa_flag_isset64(memory_properties, HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU);
+      iree_hal_amdgpu_agent_memory_properties_is_apu(memory_properties);
   return iree_ok_status();
 }
 

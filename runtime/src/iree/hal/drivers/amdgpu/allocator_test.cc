@@ -1380,6 +1380,65 @@ TEST_F(AllocatorTest, UnifiedMemoryIsAdvertisedAsDualLocality) {
   EXPECT_TRUE(found_dual_local_heap);
 }
 
+// engine#840: the HAL decides APU-ness from
+// HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES, and this ROCr signals an APU with a bit
+// the extension header does not name (0x2 on gfx1151). A unified-memory agent
+// must not be recorded as discrete: that withholds the host+device-local memory
+// type from callers. Portable on purpose - the assertions only apply when the
+// agent advertises a property at all, which a discrete agent here does not.
+TEST_F(AllocatorTest, ApuAgentReportsUnifiedMemoryAndServesDualLocality) {
+  uint8_t memory_properties[8] = {0};
+  IREE_ASSERT_OK(iree_hsa_agent_get_info(
+      IREE_LIBHSA(&libhsa_), topology_.gpu_agents[0],
+      (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES,
+      memory_properties));
+  uint64_t properties = 0;
+  std::memcpy(&properties, memory_properties, sizeof(properties));
+
+  TestLogicalDevice test_device;
+  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
+  const iree_hal_amdgpu_physical_device_t* physical_device =
+      test_device.logical_device()->physical_devices[0];
+
+  if (properties == 0) {
+    // A discrete agent: nothing to assert about unified memory.
+    GTEST_SKIP() << "agent advertises no memory properties (discrete)";
+  }
+  EXPECT_TRUE(physical_device->memory_system.device_local.unified_memory);
+
+  // The dual-locality heap declaration is what lets callers ask for
+  // HOST_LOCAL | DEVICE_LOCAL; without the APU decode it is not published.
+  std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
+  iree_host_size_t heap_count = 0;
+  IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
+      test_device.allocator(), heaps.size(), heaps.data(), &heap_count));
+  bool found_dual_local_heap = false;
+  for (iree_host_size_t i = 0; i < heap_count; ++i) {
+    found_dual_local_heap |=
+        iree_all_bits_set(heaps[i].type, IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                                             IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL);
+  }
+  EXPECT_TRUE(found_dual_local_heap);
+
+  // The allocator must serve a buffer of that memory type rather than refuse a
+  // discrete-device request. This line has no query_buffer_compatibility, so
+  // the allocation itself is the compatibility check.
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      .type =
+          IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage =
+          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      .queue_family_affinity = kQueueFamilyAffinity0,
+  };
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      test_device.allocator(), spec, /*allocation_size=*/4096, buffer.out()));
+  EXPECT_TRUE(iree_all_bits_set(
+      iree_hal_buffer_memory_type(buffer),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
+}
+
 TEST_F(AllocatorTest, HostAllocationImportUsesFinePoolAtomicContract) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));

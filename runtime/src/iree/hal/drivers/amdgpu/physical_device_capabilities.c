@@ -743,6 +743,20 @@ iree_status_t iree_hal_amdgpu_select_cpu_visible_device_coarse_memory(
   return iree_ok_status();
 }
 
+bool iree_hal_amdgpu_agent_memory_properties_is_apu(
+    const uint8_t memory_properties[8]) {
+  // HSA writes a uint32 in the low bytes; the buffer is zeroed by the caller.
+  uint64_t properties = 0;
+  memcpy(&properties, memory_properties, sizeof(properties));
+  // HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU is the documented mask (1 << 0); the
+  // ROCr in use sets bit 1 for the same property (measured 0x2 on gfx1151),
+  // which is also the bit hsa_flag_isset64(value,
+  // HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU) selects because that helper takes a
+  // bit index. Accept either encoding. See the declaration for the details.
+  const uint64_t kApuMask = HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU | (1ull << 1);
+  return (properties & kApuMask) != 0;
+}
+
 void iree_hal_amdgpu_select_memory_system_capabilities(
     const iree_hal_amdgpu_memory_system_capabilities_selection_t* selection,
     iree_hal_amdgpu_memory_system_capabilities_t* out_capabilities) {
