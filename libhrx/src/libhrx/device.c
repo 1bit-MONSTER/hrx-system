@@ -175,6 +175,11 @@ void hrx_device_release(hrx_device_t device) {
   iree_hal_device_t* hal_device = device->hal_device;
   iree_hal_device_group_t* hal_device_group = device->hal_device_group;
   if (iree_atomic_ref_count_dec(&device->ref_count) == 1) {
+    // End a still-active profiling session while it can still reach the HAL
+    // device: this branch clears hal_device below, after which
+    // hrx_gpu_shutdown()'s hrx_gpu_end_all_profiling() no-ops and the session's
+    // events never reach the client's sink.
+    iree_status_ignore(hrx_device_profile_end(device));
     hrx_mem_pool_backing_deinitialize(&device->mem_pool_backing);
     iree_hal_allocator_release(device->allocator.hal_allocator);
     device->allocator.hal_allocator = NULL;
