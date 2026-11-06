@@ -631,6 +631,11 @@ iree_status_t hrx_hal_device_select_queue(
     const iree_hal_queue_family_t* required_family,
     iree_hal_queue_t** out_queue);
 
+// Ends |device|'s profiling session if one is active, waiting for the device to
+// go idle first so the last events reach the sink. A no-op when no session is
+// active or |device|'s HAL device is already gone.
+iree_status_t hrx_device_profile_end(hrx_device_s* device);
+
 // Convert iree_status_t to hrx_status_t.
 hrx_status_t hrx_status_from_iree(iree_status_t iree_status);
 

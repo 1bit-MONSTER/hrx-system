@@ -684,7 +684,7 @@ static iree_status_t hrx_device_profile_begin(hrx_device_s* device,
   return status;
 }
 
-static iree_status_t hrx_device_profile_end(hrx_device_s* device) {
+iree_status_t hrx_device_profile_end(hrx_device_s* device) {
   if (!device || !device->profiling_active || !device->hal_device) {
     return iree_ok_status();
   }
