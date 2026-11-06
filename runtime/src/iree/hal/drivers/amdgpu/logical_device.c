@@ -3010,6 +3010,22 @@ static iree_status_t iree_hal_amdgpu_logical_device_create_command_buffer(
       iree_hal_queue_family_ordinal(queue_family);
   const iree_hal_amdgpu_physical_device_t* physical_device =
       logical_device->physical_devices[device_ordinal];
+  // A session that records dispatch events needs *every* command buffer to
+  // retain its profile metadata: the HAL assigns a profile id only to command
+  // buffers that ask for it (aql_command_buffer.c), and the queue selects the
+  // dispatches to profile through that id
+  // (host_queue_command_buffer_block.c). Requiring each client to remember the
+  // bit is how a whole path ends up recording nothing: libhrx's HIP binding
+  // creates its stream command buffers ONE_SHOT | UNRETAINED and its sessions
+  // produced metadata-only bundles with zero dispatch events (engine #894),
+  // while the graph path remembered the bit and recorded tens of thousands.
+  // Making the requirement implicit here cannot over-profile: the queue still
+  // only records when the session asked for dispatch data and only for the
+  // dispatches its own selection picks.
+  if (iree_hal_amdgpu_logical_device_profiling_requests_dispatch_timestamps(
+          logical_device)) {
+    mode |= IREE_HAL_COMMAND_BUFFER_MODE_RETAIN_PROFILE_METADATA;
+  }
   switch (logical_device->command_buffer_mode) {
     case IREE_HAL_AMDGPU_COMMAND_BUFFER_MODE_AQL:
       return iree_hal_amdgpu_logical_device_create_aql_command_buffer(
