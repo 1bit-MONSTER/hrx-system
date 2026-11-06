@@ -6,7 +6,10 @@
 
 #include "iree/hal/drivers/amdgpu/host_queue_profile_events.h"
 
+#include <stdio.h>
 #include <string.h>
+
+#include "iree/hal/device.h"
 
 #include "iree/hal/drivers/amdgpu/device/timestamp.h"
 #include "iree/hal/drivers/amdgpu/host_queue_profile.h"
@@ -271,6 +274,7 @@ void iree_hal_amdgpu_host_queue_clear_profile_events(
   queue->profiling.dispatch_events.ready_position = 0;
   queue->profiling.dispatch_events.write_position = 0;
   queue->profiling.dispatch_events.next_event_id = 1;
+  queue->profiling.dispatch_events.dropped_event_count = 0;
   queue->profiling.queue_device_events.read_position = 0;
   queue->profiling.queue_device_events.ready_position = 0;
   queue->profiling.queue_device_events.write_position = 0;
@@ -294,6 +298,7 @@ void iree_hal_amdgpu_host_queue_deallocate_profile_events(
   queue->profiling.dispatch_events.ready_position = 0;
   queue->profiling.dispatch_events.write_position = 0;
   queue->profiling.dispatch_events.next_event_id = 0;
+  queue->profiling.dispatch_events.dropped_event_count = 0;
   queue->profiling.queue_device_events.values = NULL;
   queue->profiling.queue_device_events.capacity = 0;
   queue->profiling.queue_device_events.mask = 0;
@@ -302,6 +307,47 @@ void iree_hal_amdgpu_host_queue_deallocate_profile_events(
   queue->profiling.queue_device_events.write_position = 0;
   queue->profiling.queue_device_events.next_event_id = 0;
   IREE_TRACE_ZONE_END(z0);
+}
+
+// Attempts to reserve |event_count| dispatch events from the ring without
+// touching the device. Returns true and fills |out_reservation| when the
+// reservation fit; otherwise reports what was available in |out_available_count|
+// and how much of the ring was already ready to write in |out_ready_count|.
+static bool iree_hal_amdgpu_host_queue_try_reserve_dispatch_events(
+    iree_hal_amdgpu_host_queue_t* queue, uint32_t event_count,
+    iree_hal_amdgpu_profile_dispatch_event_reservation_t* out_reservation,
+    uint64_t* out_available_count, uint64_t* out_ready_count) {
+  iree_slim_mutex_lock(&queue->profiling.event_mutex);
+  const uint64_t read_position = queue->profiling.dispatch_events.read_position;
+  const uint64_t ready_position =
+      queue->profiling.dispatch_events.ready_position;
+  const uint64_t write_position =
+      queue->profiling.dispatch_events.write_position;
+  const uint64_t occupied_count = write_position - read_position;
+  const uint64_t available_count =
+      queue->profiling.dispatch_events.capacity - occupied_count;
+  *out_available_count = available_count;
+  *out_ready_count = ready_position - read_position;
+  bool did_reserve = false;
+  if (event_count <= available_count) {
+    out_reservation->first_event_position = write_position;
+    out_reservation->event_count = event_count;
+    queue->profiling.dispatch_events.write_position =
+        write_position + event_count;
+    for (uint32_t i = 0; i < event_count; ++i) {
+      iree_hal_amdgpu_profile_dispatch_event_t* event =
+          iree_hal_amdgpu_host_queue_profile_dispatch_event_at(
+              queue, write_position + i);
+      memset(event, 0, sizeof(*event));
+      event->record_length = sizeof(*event);
+      event->event_id = queue->profiling.dispatch_events.next_event_id++;
+      event->command_index = UINT32_MAX;
+      event->function_ordinal = UINT32_MAX;
+    }
+    did_reserve = true;
+  }
+  iree_slim_mutex_unlock(&queue->profiling.event_mutex);
+  return did_reserve;
 }
 
 iree_status_t iree_hal_amdgpu_host_queue_reserve_profile_dispatch_events(
@@ -320,47 +366,49 @@ iree_status_t iree_hal_amdgpu_host_queue_reserve_profile_dispatch_events(
                             queue->profiling.dispatch_events.capacity);
   }
 
-  bool is_exhausted = false;
-  uint64_t exhausted_available_count = 0;
-  uint64_t exhausted_ready_count = 0;
+  uint64_t available_count = 0;
+  uint64_t ready_count = 0;
+  if (IREE_LIKELY(iree_hal_amdgpu_host_queue_try_reserve_dispatch_events(
+          queue, event_count, out_reservation, &available_count,
+          &ready_count))) {
+    return iree_ok_status();
+  }
+
+  // The dispatch event ring is a window over completed work, not a budget: its
+  // space is only reclaimed when the device is flushed, and until this ran a
+  // profiled session filled it monotonically for the life of the process, so
+  // the first submission that did not fit failed the *workload* on the
+  // instrument (engine #895). Reclaim what the device has already finished and
+  // try the reservation once more.
+  iree_status_ignore(iree_hal_device_profiling_flush(queue->logical_device));
+  if (iree_hal_amdgpu_host_queue_try_reserve_dispatch_events(
+          queue, event_count, out_reservation, &available_count,
+          &ready_count)) {
+    return iree_ok_status();
+  }
+
+  // Still full, so the device has more than |capacity| events in flight and they
+  // cannot be reclaimed right now. Drop this submission's events and keep the
+  // workload alive: a capture with a hole in it is a measurement problem, while
+  // a failed submission is an outage. Report the first drop per queue so the
+  // hole is never a surprise, and count every drop.
   iree_slim_mutex_lock(&queue->profiling.event_mutex);
-  const uint64_t read_position = queue->profiling.dispatch_events.read_position;
-  const uint64_t ready_position =
-      queue->profiling.dispatch_events.ready_position;
-  const uint64_t write_position =
-      queue->profiling.dispatch_events.write_position;
-  const uint64_t occupied_count = write_position - read_position;
-  const uint64_t available_count =
-      queue->profiling.dispatch_events.capacity - occupied_count;
-  if (event_count <= available_count) {
-    out_reservation->first_event_position = write_position;
-    out_reservation->event_count = event_count;
-    queue->profiling.dispatch_events.write_position =
-        write_position + event_count;
-    for (uint32_t i = 0; i < event_count; ++i) {
-      iree_hal_amdgpu_profile_dispatch_event_t* event =
-          iree_hal_amdgpu_host_queue_profile_dispatch_event_at(
-              queue, write_position + i);
-      memset(event, 0, sizeof(*event));
-      event->record_length = sizeof(*event);
-      event->event_id = queue->profiling.dispatch_events.next_event_id++;
-      event->command_index = UINT32_MAX;
-      event->function_ordinal = UINT32_MAX;
-    }
-  } else {
-    is_exhausted = true;
-    exhausted_available_count = available_count;
-    exhausted_ready_count = ready_position - read_position;
-  }
+  const uint64_t dropped_event_count =
+      ++queue->profiling.dispatch_events.dropped_event_count;
+  const uint32_t capacity = queue->profiling.dispatch_events.capacity;
   iree_slim_mutex_unlock(&queue->profiling.event_mutex);
-  if (IREE_UNLIKELY(is_exhausted)) {
-    return iree_make_status(
+  if (dropped_event_count == 1) {
+    iree_status_t status = iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
-        "dispatch profiling event ring exhausted: requested %" PRIu32
-        " events, available %" PRIu64 ", ready %" PRIu64 ", capacity %" PRIu32,
-        event_count, exhausted_available_count, exhausted_ready_count,
-        queue->profiling.dispatch_events.capacity);
+        "dispatch profiling ring could not be reclaimed: dropping %" PRIu32
+        " events for this submission (available %" PRIu64 ", ready %" PRIu64
+        ", capacity %" PRIu32 "); the session keeps running and later events "
+        "are still recorded, so the capture has a hole here",
+        event_count, available_count, ready_count, capacity);
+    iree_status_fprint(stderr, status);
+    iree_status_ignore(status);
   }
+  *out_reservation = (iree_hal_amdgpu_profile_dispatch_event_reservation_t){0};
   return iree_ok_status();
 }
 
