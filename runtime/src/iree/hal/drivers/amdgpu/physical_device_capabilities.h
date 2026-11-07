@@ -331,6 +331,21 @@ typedef struct iree_hal_amdgpu_memory_system_capabilities_selection_t {
   } device_local;
 } iree_hal_amdgpu_memory_system_capabilities_selection_t;
 
+// Decodes the hsa_amd_agent_memory_properties_t bits returned by
+// HSA_AMD_AGENT_INFO_MEMORY_PROPERTIES into whether the GPU agent shares its
+// local memory with the host.
+//
+// HSA_AMD_MEMORY_PROPERTY_AGENT_IS_APU is a mask (1 << 0), but hsa_ext_amd.h's
+// hsa_flag_isset64(value, bit) takes a *bit index*: passing the mask tests
+// bit 1.
+// The stack uses bit 1 consistently today - TheRock's libhsa sets it (a gfx1151
+// APU answers 0x2, and rocminfo reports that agent as an APU) and this decode
+// read bit 1 - but a runtime that sets the documented 0x1 would have been
+// decoded as a discrete device, losing the host+device-local memory types and
+// the dual-locality heap declarations on unified memory. Accept both bits.
+bool iree_hal_amdgpu_agent_memory_properties_is_apu(
+    const uint8_t memory_properties[8]);
+
 // Selects memory-system capabilities from already-queried facts.
 void iree_hal_amdgpu_select_memory_system_capabilities(
     const iree_hal_amdgpu_memory_system_capabilities_selection_t* selection,

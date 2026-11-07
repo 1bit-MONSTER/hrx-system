@@ -544,6 +544,10 @@ typedef struct iree_hal_amdgpu_host_queue_t {
       uint64_t write_position;
       // Next queue-local dispatch event id assigned during submission.
       uint64_t next_event_id;
+      // Events dropped because the ring could not be reclaimed at submission
+      // time; a capture with a hole here is a measurement problem, never a
+      // failed workload (engine #895).
+      uint64_t dropped_event_count;
     } dispatch_events;
     // Device-visible queue operation event ring waiting for sink flush.
     struct {
