@@ -541,7 +541,10 @@ HRX_API void hrx_device_retain(hrx_device_t device);
 // Releasing a borrowed handle that was never retained is forbidden (see
 // hrx_gpu_device_get()): the device starts with a single reference, owned by the
 // runtime, so that release takes the count to zero, tears the device down, and
-// leaves the handle unusable for every other holder of it.
+// leaves the handle unusable for every other holder of it. The refcount-zero
+// path does end a live profiling session before it drops the HAL device, so such
+// a release no longer also discards a capture — the device teardown is still the
+// reason not to do it.
 HRX_API void hrx_device_release(hrx_device_t device);
 
 //===----------------------------------------------------------------------===//
