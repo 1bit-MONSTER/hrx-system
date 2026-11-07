@@ -489,6 +489,18 @@ hrx_runtime_set_device_event_sink(hrx_device_event_sink_t sink);
 HRX_API hrx_status_t hrx_gpu_initialize(uint32_t flags);
 HRX_API hrx_status_t hrx_gpu_shutdown(void);
 HRX_API hrx_status_t hrx_gpu_device_count(int* count);
+
+// Returns the GPU device at |index| as a **borrowed** handle.
+//
+// The handle stays owned by the runtime and remains valid until
+// hrx_gpu_shutdown(). It must NOT be released: hrx_device_release() on a borrowed
+// handle drops the runtime's own reference, tears the device down for every
+// other user of it, and leaves the handle unusable. This is the same contract as
+// hrx_device_allocator() and hrx_stream_get_device().
+//
+// Call hrx_device_retain() first if an independently owned handle is needed. A
+// retained handle is paired with exactly one hrx_device_release(); that release
+// is the only correct use of hrx_device_release() on a device obtained here.
 HRX_API hrx_status_t hrx_gpu_device_get(int index, hrx_device_t* device);
 
 //===----------------------------------------------------------------------===//
@@ -498,6 +510,9 @@ HRX_API hrx_status_t hrx_gpu_device_get(int index, hrx_device_t* device);
 HRX_API hrx_status_t hrx_cpu_initialize(uint32_t flags);
 HRX_API hrx_status_t hrx_cpu_shutdown(void);
 HRX_API hrx_status_t hrx_cpu_device_count(int* count);
+
+// Returns the CPU device at |index| as a **borrowed** handle. Same contract as
+// hrx_gpu_device_get(): do not release it; retain it first if it must be owned.
 HRX_API hrx_status_t hrx_cpu_device_get(int index, hrx_device_t* device);
 
 //===----------------------------------------------------------------------===//
@@ -515,7 +530,21 @@ HRX_API hrx_status_t hrx_device_synchronize(hrx_device_t device);
 HRX_API hrx_status_t hrx_device_get_type(hrx_device_t device,
                                          hrx_accelerator_type_t* type);
 
+// Takes an additional reference on |device|. This is how a handle returned by
+// hrx_gpu_device_get() or hrx_cpu_device_get() becomes an owned one: retain it,
+// then release it exactly once when done. Retaining a handle that is already
+// owned is allowed and must be balanced by the same number of releases.
 HRX_API void hrx_device_retain(hrx_device_t device);
+
+// Drops one reference taken by hrx_device_retain().
+//
+// Releasing a borrowed handle that was never retained is forbidden (see
+// hrx_gpu_device_get()): the device starts with a single reference, owned by the
+// runtime, so that release takes the count to zero, tears the device down, and
+// leaves the handle unusable for every other holder of it. The refcount-zero
+// path does end a live profiling session before it drops the HAL device, so such
+// a release no longer also discards a capture — the device teardown is still the
+// reason not to do it.
 HRX_API void hrx_device_release(hrx_device_t device);
 
 //===----------------------------------------------------------------------===//
