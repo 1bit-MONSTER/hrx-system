@@ -626,6 +626,18 @@ static iree_status_t iree_hal_amdgpu_slab_provider_acquire_slab(
         (size_t)allocation_size, HSA_AMD_MEMORY_POOL_STANDARD_FLAG, &base_ptr);
     if (iree_status_is_ok(status)) {
       slab_handle->base_ptr = base_ptr;
+    } else {
+      // A pool that cannot serve a slab is the one failure here a human has to
+      // act on (engine #1618: an 89 GB model against a 66.6 GiB pool budget is
+      // refused by HSA at upload time), and the bare HSA status does not say
+      // how much was asked for. The caller sees the size, the logical request
+      // and the granule the runtime actually tried to round up to.
+      status = iree_status_annotate_f(
+          status,
+          "slab allocation of %" PRIu64 " bytes (requested %" PRIu64
+          ", granule %" PRIu64 ") from the amdgpu device pool",
+          (uint64_t)allocation_size, (uint64_t)min_length,
+          (uint64_t)provider->allocation_granule);
     }
   }
   if (iree_status_is_ok(status) &&
