@@ -15,6 +15,7 @@
 #include "common/graph_memory.h"
 #include "common/hrx_bridge.h"
 #include "common/mem_pool.h"
+#include "iree/base/threading/call_once.h"
 #include "iree/hal/utils/profile_file.h"
 #include "iree/io/file_handle.h"
 #include "libhrx/src/libhrx/device.h"
@@ -32,6 +33,34 @@ static iree_hal_streaming_device_registry_t*
 // Accessor function for the global device registry.
 iree_hal_streaming_device_registry_t* iree_hal_streaming_device_registry(void) {
   return iree_hal_streaming_global_registry;
+}
+
+//===----------------------------------------------------------------------===//
+// Profile capture end at process exit
+//===----------------------------------------------------------------------===//
+
+// A capture begun from HRX_PROFILE_FILE otherwise ends only in device teardown,
+// which a HIP program reaches through hipHALDeinit(). Most programs exit without
+// calling it, and the bundle then has no session end (iree-profile: DATA_LOSS).
+// After a successful begin, this exit hook ends the capture on every device of
+// the global group. hrx_device_profile_end() is a no-op on a device whose capture
+// already ended, and a group released by hipHALDeinit() clears the registry, so
+// the hook does nothing after an explicit deinit.
+static void iree_hal_streaming_profile_end_at_exit(void) {
+  iree_hal_streaming_device_registry_t* registry =
+      iree_hal_streaming_global_registry;
+  if (!registry || !registry->initialized || !registry->group) return;
+  for (size_t i = 0; i < hrx_device_group_device_count(registry->group); ++i) {
+    iree_status_ignore(
+        hrx_device_profile_end(hrx_device_group_get_device(registry->group, i)));
+  }
+}
+
+static iree_once_flag iree_hal_streaming_profile_exit_once =
+    IREE_ONCE_FLAG_INIT;
+
+static void iree_hal_streaming_register_profile_exit(void) {
+  atexit(iree_hal_streaming_profile_end_at_exit);
 }
 
 //===----------------------------------------------------------------------===//
@@ -639,11 +668,16 @@ static iree_status_t iree_hal_streaming_device_group_create(
     status = hrx_device_profile_begin(hrx_device_group_get_device(group, i),
                                       &profile_options);
   }
+  const bool profile_begun = profile_sink != NULL && iree_status_is_ok(status);
   iree_hal_profile_sink_release(profile_sink);
   if (!iree_status_is_ok(status)) {
     hrx_device_group_release(group);
   } else {
     *out_group = group;
+    if (profile_begun) {
+      iree_call_once(&iree_hal_streaming_profile_exit_once,
+                     iree_hal_streaming_register_profile_exit);
+    }
   }
   return status;
 }
