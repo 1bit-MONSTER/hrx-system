@@ -597,7 +597,7 @@ HIPAPI hipError_t hipDrvLaunchKernelEx(const HIP_LAUNCH_CONFIG* config,
   return _ret;
 }
 
-// hipEventRecordWithFlags@hip_6.4 (from libhrx/src/binding/hip/abi_stubs.c)
+// hipEventRecordWithFlags@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipEventRecordWithFlags(hipEvent_t event, hipStream_t stream,
                                           unsigned int flags) {
   typedef hipError_t (*pfn_hipEventRecordWithFlags_t)(hipEvent_t, hipStream_t, unsigned int);
@@ -1887,7 +1887,7 @@ HIPAPI hipError_t hipMemGetHandleForAddressRange(void* handle, hipDeviceptr_t dp
   return _ret;
 }
 
-// hipMemGetMemPool@hip_7.2 (from libhrx/src/binding/hip/api.c)
+// hipMemGetMemPool@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemGetMemPool(hipMemPool_t* pool, hipMemLocation* location,
                                    hipMemAllocationType type) {
   typedef hipError_t (*pfn_hipMemGetMemPool_t)(hipMemPool_t*, hipMemLocation*, hipMemAllocationType);
@@ -1948,7 +1948,7 @@ HIPAPI hipError_t hipMemRangeGetAttributes(void** data, size_t* data_sizes,
   return _ret;
 }
 
-// hipMemSetMemPool@hip_7.2 (from libhrx/src/binding/hip/api.c)
+// hipMemSetMemPool@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemSetMemPool(hipMemLocation* location,
                                    hipMemAllocationType type,
                                    hipMemPool_t pool) {
