@@ -6,6 +6,7 @@
 #include "hrx_internal.h"
 #include "iree/async/frontier_tracker.h"
 #include "iree/base/internal/path.h"
+#include "profile_environment.h"
 #include "runtime.h"
 
 static_assert((uint32_t)HRX_WAIT_FLAG_YIELD == IREE_ASYNC_WAIT_FLAG_YIELD,
@@ -140,8 +141,17 @@ iree_status_t hrx_device_group_create_with_extensions(
 hrx_status_t hrx_device_group_create(hrx_runtime_t runtime, size_t device_count,
                                      const hrx_device_create_params_t* devices,
                                      hrx_device_group_t* out_group) {
-  return hrx_status_from_iree(hrx_device_group_create_with_extensions(
-      runtime, device_count, devices, NULL, 0, out_group));
+  iree_status_t status = hrx_device_group_create_with_extensions(
+      runtime, device_count, devices, NULL, 0, out_group);
+  if (iree_status_is_ok(status)) {
+    status = hrx_device_group_begin_environment_profile(
+        *out_group, runtime->host_allocator);
+    if (!iree_status_is_ok(status)) {
+      hrx_device_group_release(*out_group);
+      *out_group = NULL;
+    }
+  }
+  return hrx_status_from_iree(status);
 }
 
 void hrx_device_group_retain(hrx_device_group_t group) {
