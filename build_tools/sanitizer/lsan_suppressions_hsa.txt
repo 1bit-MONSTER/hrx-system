@@ -1,3 +1,0 @@
-# LSAN suppressions for allocations retained by the external HSA runtime.
-
-leak:libhsa-runtime64.so
